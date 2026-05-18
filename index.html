@@ -424,6 +424,8 @@
           style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
         <input type="text" name="mecanicas" placeholder="Mecánicas (sep. por comas)"
           style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
+        <input type="text" name="ubicacion" placeholder="Ubicación (ej: Estante 1, fila 2)"
+          style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
           <button type="button" id="cancelAddGame"
             style="background:none; border:none; cursor:pointer; color:#666;">Cancelar</button>
@@ -436,8 +438,7 @@
     <div>
       <h3 style="margin-top:0; font-size: 16px;">O importar desde Excel</h3>
       <input type="file" id="excelInput" accept=".xlsx" style="font-size: 14px;">
-      <p style="font-size: 12px; color: #666; margin-top: 5px;">El Excel debe tener una columna llamada "Juego" o
-        "Nombre".</p>
+      <p style="font-size: 12px; color: #666; margin-top: 5px;">El Excel debe tener columna "Juego"/"Nombre". Opcional: "Ubicación", "Mecánicas", "Categorías", "Suggested_NumPlayers".</p>
     </div>
   </dialog>
   <section class="filters">
@@ -449,7 +450,18 @@
     </div>
     <div class="filter-group">
       <span class="filter-label">Complejidad máxima</span>
-      <div class="chip-group" data-filter="complexity">
+      <div class="chip-group" data-filter="complexityMax">
+        <button type="button" class="chip is-active" data-value="">Cualquiera</button>
+        <button type="button" class="chip" data-value="Liviano">Liviano</button>
+        <button type="button" class="chip" data-value="Medio-Liviano">Medio-Liviano</button>
+        <button type="button" class="chip" data-value="Medio">Medio</button>
+        <button type="button" class="chip" data-value="Medio-Pesado">Medio-Pesado</button>
+        <button type="button" class="chip" data-value="Pesado">Pesado</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Complejidad mínima</span>
+      <div class="chip-group" data-filter="complexityMin">
         <button type="button" class="chip is-active" data-value="">Cualquiera</button>
         <button type="button" class="chip" data-value="Liviano">Liviano</button>
         <button type="button" class="chip" data-value="Medio-Liviano">Medio-Liviano</button>
@@ -466,6 +478,12 @@
         <button type="button" class="chip" data-value="Moderado">Moderado</button>
         <button type="button" class="chip" data-value="Medio-Largo">Medio-Largo</button>
         <button type="button" class="chip" data-value="Largo">Largo</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Mecánica</span>
+      <div class="chip-group" data-filter="mechanics">
+        <button type="button" class="chip is-active" data-value="">Cualquiera</button>
       </div>
     </div>
     <div class="filter-group">

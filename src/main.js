@@ -62,7 +62,15 @@ if (loginBtn) {
             await signInWithPopup(auth, googleProvider);
         } catch (error) {
             console.error("Login failed", error);
-            alert("Error al iniciar sesión: " + error.message);
+            if (error?.code === "auth/unauthorized-domain") {
+                const host = window.location.hostname;
+                alert(
+                    `No se puede iniciar sesión desde este dominio (${host}). ` +
+                    "Un administrador debe agregarlo en Firebase Console > Authentication > Settings > Authorized domains."
+                );
+            } else {
+                alert("Error al iniciar sesión: " + error.message);
+            }
         }
     });
 }
@@ -219,7 +227,8 @@ if (addGameForm) {
             minutos_label: formData.get('minutos'),
             longitud: getDurationLabel(Number(formData.get('minutos'))),
             categorias: formData.get('categorias').split(',').map(s => s.trim()),
-            mecanicas: formData.get('mecanicas').split(',').map(s => s.trim()),
+            mecanicas: formData.get('mecanicas').split(',').map(s => s.trim()).filter(Boolean),
+            ubicacion: String(formData.get('ubicacion') || '').trim(),
             score: 0 // Default score
         };
 

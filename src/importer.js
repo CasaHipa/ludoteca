@@ -1,51 +1,54 @@
 import readXlsxFile from 'read-excel-file';
 
+const splitList = (value) => String(value || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
 export async function importExcel(file) {
     try {
         const rows = await readXlsxFile(file);
-        // Assuming first row is header. 
-        // We need to map columns. For now, let's assume a simple structure or try to detect.
-        // Or better, just take the first few columns: Name, Players, Duration, Complexity.
+        if (!rows?.length) return { count: 0, games: [] };
 
-        // Let's assume standard BGG export or the user's format.
-        // User said "subir sus juegos manualmente o usando un excel".
-        // Let's assume columns: Juego, Jugadores (min-max), Duracion, Complejidad, Categorias, Mecanicas
-
-        const headers = rows[0].map(h => String(h).toLowerCase());
+        const headers = rows[0].map(h => String(h || '').toLowerCase().trim());
         const gameIdx = headers.findIndex(h => h.includes('juego') || h.includes('name') || h.includes('titulo'));
+        const ubicacionIdx = headers.findIndex(h => h.includes('ubicaci'));
+        const categoriasIdx = headers.findIndex(h => h.includes('categor'));
+        const mecanicasIdx = headers.findIndex(h => h.includes('mecani') || h.includes('mechanic'));
+        const suggestedPlayersIdx = headers.findIndex(h => h.includes('suggested_numplayers') || h.includes('jugadores sugeridos'));
 
-        if (gameIdx === -1) {
-            throw new Error("No se encontró la columna 'Juego' o 'Nombre' en el Excel.");
-        }
+        if (gameIdx === -1) throw new Error("No se encontró la columna 'Juego' o 'Nombre' en el Excel.");
 
         let count = 0;
         const parsedGames = [];
         for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
+            const row = rows[i] || [];
             const name = row[gameIdx];
             if (!name) continue;
 
-            // Basic parsing (very robust to failure)
-            const gameData = {
-                juego: name,
-                jug_min: 1, // Default
-                jug_max: 4, // Default
-                minutos: 60, // Default
-                complejidad: 'Medio', // Default
-                categorias: [],
-                mecanicas: [],
+            const categorias = categoriasIdx >= 0 ? splitList(row[categoriasIdx]) : [];
+            const mecanicas = mecanicasIdx >= 0 ? splitList(row[mecanicasIdx]) : [];
+            const suggested = suggestedPlayersIdx >= 0 ? String(row[suggestedPlayersIdx] || '').trim() : '';
+
+            parsedGames.push({
+                juego: String(name).trim(),
+                jug_min: 1,
+                jug_max: 4,
+                minutos: 60,
+                complejidad: 'Medio',
+                categorias,
+                categorias_str: categorias.join(', '),
+                mecanicas,
+                mecanicas_str: mecanicas.join(', '),
+                suggested_numplayers: suggested,
+                ubicacion: ubicacionIdx >= 0 ? String(row[ubicacionIdx] || '').trim() : '',
                 createdAt: new Date()
-            };
-
-            // Try to find other columns if they exist
-            // This is a simplified importer. A real one would need column mapping UI.
-
+            });
             count++;
-            parsedGames.push(gameData);
         }
         return { count, games: parsedGames };
     } catch (e) {
-        console.error("Error importing Excel:", e);
+        console.error('Error importing Excel:', e);
         throw e;
     }
 }

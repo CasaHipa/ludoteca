@@ -1,5 +1,5 @@
 
-export const filters = { players: "", complexity: "", duration: "", search: "" };
+export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "" };
 let currentGames = []; // Store the current list of games
 let currentUserId = null;
 let currentUserWishlist = new Set(); // Set of game IDs
@@ -32,6 +32,21 @@ export function initUI(games) {
             btn.dataset.value = String(num);
             btn.textContent = num;
             playerGroup.appendChild(btn);
+        });
+    }
+
+
+    const mechanicsGroup = document.querySelector('[data-filter="mechanics"]');
+    if (mechanicsGroup) {
+        const all = new Set();
+        games.forEach(g => (Array.isArray(g.mecanicas) ? g.mecanicas : []).forEach(m => all.add(m)));
+        Array.from(all).sort().forEach(m => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chip';
+            btn.dataset.value = String(m);
+            btn.textContent = String(m);
+            mechanicsGroup.appendChild(btn);
         });
     }
 
@@ -120,7 +135,7 @@ function setupEventListeners() {
 
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
-            filters.players = filters.complexity = filters.duration = filters.search = '';
+            filters.players = filters.complexityMin = filters.complexityMax = filters.duration = filters.mechanics = filters.search = '';
             if (searchInput) searchInput.value = '';
             groups.forEach(group => {
                 group.querySelectorAll('button').forEach(btn => {
@@ -147,13 +162,20 @@ function matchesPlayers(row) {
 }
 
 function matchesComplexity(row) {
-    if (!filters.complexity) return true;
-    if (!row.complejidad) return false;
-    const limit = complexityOrder.indexOf(filters.complexity);
+    if (!row.complejidad) return !filters.complexityMin && !filters.complexityMax;
     const value = complexityOrder.indexOf(row.complejidad);
-    if (limit === -1) return true;
     if (value === -1) return false;
-    return value <= limit;
+    const min = filters.complexityMin ? complexityOrder.indexOf(filters.complexityMin) : -1;
+    const max = filters.complexityMax ? complexityOrder.indexOf(filters.complexityMax) : Infinity;
+    if (min !== -1 && value < min) return false;
+    if (max !== Infinity && value > max) return false;
+    return true;
+}
+
+function matchesMechanics(row) {
+    if (!filters.mechanics) return true;
+    const list = Array.isArray(row.mecanicas) ? row.mecanicas : [];
+    return list.some(m => String(m).toLowerCase() === filters.mechanics.toLowerCase());
 }
 
 function matchesDuration(row) {
@@ -173,6 +195,7 @@ function applyFilters() {
         matchesPlayers(row) &&
         matchesComplexity(row) &&
         matchesDuration(row) &&
+        matchesMechanics(row) &&
         matchesSearch(row)
     ).sort((a, b) => {
         const scoreA = a.score ?? 0;
@@ -212,7 +235,7 @@ function render(rows) {
         card.className = 'card';
         const score = row.score !== null && row.score !== undefined ? Number(row.score).toFixed(1) : '–';
         const durationLabel = row.minutos_label || row.longitud;
-        const duration = durationLabel ? (row.minutos_label ? `${durationLabel} min` : durationLabel) : 'Duración variable';
+        const duration = durationLabel ? (String(durationLabel).toLowerCase().includes('min') ? durationLabel : `${durationLabel} min`) : 'Duración variable';
         const players = row.jugadores || 'Jugadores variables';
         const complexity = row.complejidad || 'Sin dato';
         const categories = Array.isArray(row.categorias) ? row.categorias.slice(0, 3) : [];
@@ -268,9 +291,11 @@ function render(rows) {
       </div>
       <div class="meta">
         <span><strong>${players}</strong> jugadores</span>
-        <span>${duration} min</span>
+        <span>${duration}</span>
         <span>Complejidad: <strong>${complexity}</strong></span>
         <span class="score">Puntaje ${score}</span>
+        ${row.suggested_numplayers ? `<span>Sugerido: <strong>${row.suggested_numplayers}</strong></span>` : ''}
+        ${row.ubicacion ? `<span style="opacity:.75">Ubicación: ${row.ubicacion}</span>` : ''}
       </div>
       <div class="tags">
         ${categories.map(cat => `<span>${cat}</span>`).join('')}
