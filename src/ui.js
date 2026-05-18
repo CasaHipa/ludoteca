@@ -15,6 +15,43 @@ const counter = document.querySelector('#matchCount');
 const results = document.querySelector('#results');
 const resetBtn = document.querySelector('#resetFilters');
 const complexityOrder = ["Liviano", "Medio-Liviano", "Medio", "Medio-Pesado", "Pesado"];
+const TOP_FILTER_CHIPS_LIMIT = 10;
+
+function buildTopFrequencyChips(games, groupSelector, fieldName) {
+    const group = document.querySelector(`[data-filter="${groupSelector}"]`);
+    if (!group) return;
+
+    const freq = new Map();
+    games.forEach(game => {
+        const values = Array.isArray(game[fieldName]) ? game[fieldName] : [];
+        values.forEach(value => {
+            const normalized = String(value).trim();
+            if (!normalized) return;
+            freq.set(normalized, (freq.get(normalized) || 0) + 1);
+        });
+    });
+
+    group.querySelectorAll('button[data-value]:not([data-value=""])').forEach(btn => btn.remove());
+
+    const topValues = Array.from(freq.entries())
+        .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return a[0].localeCompare(b[0]);
+        })
+        .slice(0, TOP_FILTER_CHIPS_LIMIT)
+        .map(([value]) => value);
+
+    topValues.forEach(value => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chip';
+        btn.dataset.value = value;
+        btn.textContent = value;
+        group.appendChild(btn);
+    });
+
+    // Los elementos fuera del top de chips siguen siendo descubribles vía búsqueda libre.
+}
 
 export function initUI(games) {
     setGamesDataset(games);
@@ -38,19 +75,9 @@ export function initUI(games) {
     }
 
 
-    const mechanicsGroup = document.querySelector('[data-filter="mechanics"]');
-    if (mechanicsGroup) {
-        const all = new Set();
-        games.forEach(g => (Array.isArray(g.mecanicas) ? g.mecanicas : []).forEach(m => all.add(m)));
-        Array.from(all).sort().forEach(m => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'chip';
-            btn.dataset.value = String(m);
-            btn.textContent = String(m);
-            mechanicsGroup.appendChild(btn);
-        });
-    }
+    buildTopFrequencyChips(games, 'mechanics', 'mecanicas');
+    buildTopFrequencyChips(games, 'categories', 'categorias');
+    buildTopFrequencyChips(games, 'genres', 'generos');
 
     setupEventListeners();
     applyFilters();
