@@ -135,14 +135,27 @@ export function setLoading(loading = true) {
     applyFilters();
 }
 
+function normalizeSearchText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+}
+
+function tokenizeSearchText(value) {
+    return normalizeSearchText(value)
+        .split(/[^a-z0-9]+/i)
+        .filter(Boolean);
+}
+
 function setGamesDataset(games) {
     currentGames = (games || []).map(game => ({
         ...game,
-        search_blob_lower: [
+        search_tokens: tokenizeSearchText([
             game.juego || '',
             game.categorias_str || '',
             game.mecanicas_str || ''
-        ].join(' ').toLowerCase()
+        ].join(' '))
     }));
 
     sortedGames = currentGames.slice().sort((a, b) => {
@@ -256,8 +269,12 @@ function matchesDuration(row) {
 
 function matchesSearch(row) {
     if (!filters.search) return true;
-    const haystack = row.search_blob_lower || '';
-    return haystack.includes(filters.search);
+    const queryTokens = tokenizeSearchText(filters.search);
+    if (queryTokens.length === 0) return true;
+    const searchTokens = Array.isArray(row.search_tokens) ? row.search_tokens : [];
+    return queryTokens.every(queryToken =>
+        searchTokens.some(searchToken => searchToken.startsWith(queryToken))
+    );
 }
 
 function applyFilters() {
