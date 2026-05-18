@@ -298,7 +298,7 @@ function applyFilters() {
 function updateCounter(total) {
     if (!counter) return;
     if (isLoading) {
-        counter.textContent = 'Cargando juegos...';
+        counter.textContent = '';
         return;
     }
     if (total === 0) {
@@ -314,10 +314,28 @@ function render(rows, options = {}) {
     if (!results) return;
     results.innerHTML = '';
     if (options.loading) {
-        const loading = document.createElement('div');
-        loading.className = 'empty';
-        loading.textContent = 'Cargando juegos...';
-        results.appendChild(loading);
+        for (let i = 0; i < 6; i++) {
+            const skeleton = document.createElement('article');
+            skeleton.className = 'card skeleton-card';
+            skeleton.innerHTML = `
+                <div>
+                    <div class="skeleton-line skeleton-title"></div>
+                    <div class="skeleton-line skeleton-subtitle"></div>
+                </div>
+                <div class="skeleton-meta">
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+                <div class="skeleton-tags">
+                    <div class="skeleton-pill"></div>
+                    <div class="skeleton-pill"></div>
+                    <div class="skeleton-pill"></div>
+                </div>
+            `;
+            results.appendChild(skeleton);
+        }
         return;
     }
     if (rows.length === 0) {
