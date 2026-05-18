@@ -334,7 +334,21 @@ function render(rows, options = {}) {
         const durationLabel = row.minutos_label || row.longitud;
         const duration = durationLabel ? (String(durationLabel).toLowerCase().includes('min') ? durationLabel : `${durationLabel} min`) : 'Duración variable';
         const players = row.jugadores || 'Jugadores variables';
-        const complexity = row.complejidad || 'Sin dato';
+        const communityPlayers = row.jugadores_comunidad || row.community_players || row.suggested_numplayers || '';
+        const bestPlayers = row.mejor_jugadores || row.best_players || '';
+        const communityInfo = [
+            communityPlayers ? `Comunidad: ${communityPlayers}` : '',
+            bestPlayers ? `Mejor: ${bestPlayers}` : ''
+        ].filter(Boolean).join(' · ');
+        const minAge = row.edad_minima ?? row.min_age ?? null;
+        const communityAge = row.edad_comunidad ?? row.community_age ?? '';
+        const ageInfo = minAge ? `${minAge}+` : '';
+        const complexityNumber = row.complejidad_num !== null && row.complejidad_num !== undefined && !Number.isNaN(Number(row.complejidad_num))
+            ? Number(row.complejidad_num).toFixed(1)
+            : '';
+        const complexity = row.complejidad
+            ? `${row.complejidad}${complexityNumber ? ` (${complexityNumber}/5)` : ''}`
+            : (complexityNumber ? `${complexityNumber}/5` : 'Sin dato');
         const categories = Array.isArray(row.categorias) ? row.categorias.slice(0, 3) : [];
         const mechanics = Array.isArray(row.mecanicas) ? row.mecanicas.slice(0, 2) : [];
 
@@ -345,10 +359,11 @@ function render(rows, options = {}) {
       </div>
       <div class="meta">
         <span><strong>${players}</strong> jugadores</span>
+        ${communityInfo ? `<span>${communityInfo}</span>` : ''}
         <span>${duration}</span>
+        ${ageInfo ? `<span>Edad: <strong>${ageInfo}</strong>${communityAge ? ` · Comunidad: ${communityAge}+` : ''}</span>` : ''}
         <span>Complejidad: <strong>${complexity}</strong></span>
         <span class="score">Puntaje ${score}</span>
-        ${row.suggested_numplayers ? `<span>Sugerido: <strong>${row.suggested_numplayers}</strong></span>` : ''}
         ${row.ubicacion ? `<span style="opacity:.75">Ubicación: ${row.ubicacion}</span>` : ''}
       </div>
       <div class="tags">
