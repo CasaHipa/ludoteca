@@ -62,7 +62,15 @@ if (loginBtn) {
             await signInWithPopup(auth, googleProvider);
         } catch (error) {
             console.error("Login failed", error);
-            alert("Error al iniciar sesión: " + error.message);
+            if (error?.code === "auth/unauthorized-domain") {
+                const host = window.location.hostname;
+                alert(
+                    `No se puede iniciar sesión desde este dominio (${host}). ` +
+                    "Un administrador debe agregarlo en Firebase Console > Authentication > Settings > Authorized domains."
+                );
+            } else {
+                alert("Error al iniciar sesión: " + error.message);
+            }
         }
     });
 }
