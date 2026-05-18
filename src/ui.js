@@ -1,10 +1,12 @@
 
 export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "" };
 let currentGames = []; // Store the current list of games
+let sortedGames = [];
 let currentUserId = null;
 let currentUserWishlist = new Set(); // Set of game IDs
 let toggleLookingForPlayersCallback = null;
 let toggleWishlistCallback = null;
+let searchDebounceTimer = null;
 
 // DOM Elements
 const groups = document.querySelectorAll('[data-filter]');
@@ -15,7 +17,7 @@ const resetBtn = document.querySelector('#resetFilters');
 const complexityOrder = ["Liviano", "Medio-Liviano", "Medio", "Medio-Pesado", "Pesado"];
 
 export function initUI(games) {
-    currentGames = games;
+    setGamesDataset(games);
 
     // Initialize Filter Buttons
     const playerGroup = document.querySelector('[data-filter="players"]');
@@ -52,13 +54,33 @@ export function initUI(games) {
 
     setupEventListeners();
     applyFilters();
-    updateAutocomplete(games);
 }
 
 export function updateGames(newGames) {
-    currentGames = newGames;
+    setGamesDataset(newGames);
     applyFilters();
-    updateAutocomplete(newGames);
+}
+
+function setGamesDataset(games) {
+    currentGames = (games || []).map(game => ({
+        ...game,
+        search_blob_lower: [
+            game.juego || '',
+            game.categorias_str || '',
+            game.mecanicas_str || ''
+        ].join(' ').toLowerCase()
+    }));
+
+    sortedGames = currentGames.slice().sort((a, b) => {
+        const scoreA = a.score ?? 0;
+        const scoreB = b.score ?? 0;
+        if (scoreA === scoreB) {
+            return (a.juego || '').localeCompare(b.juego || '');
+        }
+        return scoreB - scoreA;
+    });
+
+    updateAutocomplete(currentGames);
 }
 
 function updateAutocomplete(games) {
@@ -129,7 +151,10 @@ function setupEventListeners() {
     if (searchInput) {
         searchInput.addEventListener('input', () => {
             filters.search = searchInput.value.trim().toLowerCase();
-            applyFilters();
+            if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                applyFilters();
+            }, 200);
         });
     }
 
@@ -185,26 +210,18 @@ function matchesDuration(row) {
 
 function matchesSearch(row) {
     if (!filters.search) return true;
-    const haystack = [row.juego, row.categorias_str || '', row.mecanicas_str || '']
-        .join(' ').toLowerCase();
+    const haystack = row.search_blob_lower || '';
     return haystack.includes(filters.search);
 }
 
 function applyFilters() {
-    const filtered = currentGames.filter(row =>
+    const filtered = sortedGames.filter(row =>
         matchesPlayers(row) &&
         matchesComplexity(row) &&
         matchesDuration(row) &&
         matchesMechanics(row) &&
         matchesSearch(row)
-    ).sort((a, b) => {
-        const scoreA = a.score ?? 0;
-        const scoreB = b.score ?? 0;
-        if (scoreA === scoreB) {
-            return (a.juego || '').localeCompare(b.juego || '');
-        }
-        return scoreB - scoreA;
-    });
+    );
     updateCounter(filtered.length);
     render(filtered.slice(0, 30));
 }
