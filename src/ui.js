@@ -1,5 +1,5 @@
 
-export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "" };
+export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "", genreSearch: "", mechanicsSearch: "" };
 let currentGames = []; // Store the current list of games
 let currentUserId = null;
 let currentUserWishlist = new Set(); // Set of game IDs
@@ -9,6 +9,8 @@ let toggleWishlistCallback = null;
 // DOM Elements
 const groups = document.querySelectorAll('[data-filter]');
 const searchInput = document.querySelector('#search');
+const genreSearchInput = document.querySelector('#genreSearch');
+const mechanicsSearchInput = document.querySelector('#mechanicsSearch');
 const counter = document.querySelector('#matchCount');
 const results = document.querySelector('#results');
 const resetBtn = document.querySelector('#resetFilters');
@@ -126,17 +128,41 @@ function setupEventListeners() {
         });
     });
 
+    const debounce = (fn, wait = 200) => {
+        let timeoutId;
+        return (...args) => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => fn(...args), wait);
+        };
+    };
+
     if (searchInput) {
-        searchInput.addEventListener('input', () => {
+        searchInput.addEventListener('input', debounce(() => {
             filters.search = searchInput.value.trim().toLowerCase();
             applyFilters();
-        });
+        }));
+    }
+
+    if (genreSearchInput) {
+        genreSearchInput.addEventListener('input', debounce(() => {
+            filters.genreSearch = genreSearchInput.value.trim().toLowerCase();
+            applyFilters();
+        }));
+    }
+
+    if (mechanicsSearchInput) {
+        mechanicsSearchInput.addEventListener('input', debounce(() => {
+            filters.mechanicsSearch = mechanicsSearchInput.value.trim().toLowerCase();
+            applyFilters();
+        }));
     }
 
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
-            filters.players = filters.complexityMin = filters.complexityMax = filters.duration = filters.mechanics = filters.search = '';
+            filters.players = filters.complexityMin = filters.complexityMax = filters.duration = filters.mechanics = filters.search = filters.genreSearch = filters.mechanicsSearch = '';
             if (searchInput) searchInput.value = '';
+            if (genreSearchInput) genreSearchInput.value = '';
+            if (mechanicsSearchInput) mechanicsSearchInput.value = '';
             groups.forEach(group => {
                 group.querySelectorAll('button').forEach(btn => {
                     const isDefault = btn.dataset.value === '';
@@ -183,6 +209,16 @@ function matchesDuration(row) {
     return row.longitud === filters.duration;
 }
 
+
+function matchesGenreSearch(row) {
+    if (!filters.genreSearch) return true;
+    return String(row.categorias_str || '').toLowerCase().includes(filters.genreSearch);
+}
+
+function matchesMechanicsSearch(row) {
+    if (!filters.mechanicsSearch) return true;
+    return String(row.mecanicas_str || '').toLowerCase().includes(filters.mechanicsSearch);
+}
 function matchesSearch(row) {
     if (!filters.search) return true;
     const haystack = [row.juego, row.categorias_str || '', row.mecanicas_str || '']
@@ -196,6 +232,8 @@ function applyFilters() {
         matchesComplexity(row) &&
         matchesDuration(row) &&
         matchesMechanics(row) &&
+        matchesGenreSearch(row) &&
+        matchesMechanicsSearch(row) &&
         matchesSearch(row)
     ).sort((a, b) => {
         const scoreA = a.score ?? 0;
