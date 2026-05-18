@@ -1,7 +1,6 @@
 import readXlsxFile from 'read-excel-file';
-import { addGameToLibrary } from './db.js';
 
-export async function importExcel(file, userId) {
+export async function importExcel(file) {
     try {
         const rows = await readXlsxFile(file);
         // Assuming first row is header. 
@@ -20,6 +19,7 @@ export async function importExcel(file, userId) {
         }
 
         let count = 0;
+        const parsedGames = [];
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             const name = row[gameIdx];
@@ -40,10 +40,10 @@ export async function importExcel(file, userId) {
             // Try to find other columns if they exist
             // This is a simplified importer. A real one would need column mapping UI.
 
-            await addGameToLibrary(userId, gameData);
             count++;
+            parsedGames.push(gameData);
         }
-        return count;
+        return { count, games: parsedGames };
     } catch (e) {
         console.error("Error importing Excel:", e);
         throw e;

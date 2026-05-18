@@ -1,5 +1,5 @@
 import { db } from './firebase-config.js';
-import { doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 
 /**
  * Ensures a user profile exists in the database.
@@ -16,7 +16,8 @@ export async function ensureUserProfile(user) {
             email: user.email,
             photoURL: user.photoURL,
             createdAt: new Date(),
-            isPublic: false // Default to private
+            isPublic: false, // Default to private
+            role: "user"
         };
         try {
             await setDoc(userRef, newProfile);
@@ -105,4 +106,68 @@ export async function getUserWishlist(userId) {
     const games = [];
     snap.forEach(doc => games.push(doc.data()));
     return games;
+}
+
+
+export async function getUserRole(userId) {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) return "user";
+    return userSnap.data().role || "user";
+}
+
+export async function canManageCatalog(userId) {
+    const role = await getUserRole(userId);
+    return role === "admin";
+}
+
+export async function createBulkImportJob(userId, fileName, games) {
+    const jobsRef = collection(db, "importJobs");
+    const payload = {
+        type: "bulk_excel",
+        status: "queued",
+        requestedBy: userId,
+        payload: { fileName, games },
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+    };
+    const jobRef = await addDoc(jobsRef, payload);
+    return jobRef.id;
+}
+
+export async function createSingleGameJob(userId, gameName) {
+    const jobsRef = collection(db, "importJobs");
+    const normalized = String(gameName || "").trim().toLowerCase();
+    if (!normalized) throw new Error("Nombre de juego inválido");
+
+    const pendingQ = query(
+        jobsRef,
+        where("type", "==", "single_game"),
+        where("requestedBy", "==", userId),
+        where("payload.normalizedName", "==", normalized),
+        where("status", "in", ["queued", "processing"])
+    );
+    const pendingSnap = await getDocs(pendingQ);
+    if (!pendingSnap.empty) {
+        return pendingSnap.docs[0].id;
+    }
+
+    const payload = {
+        type: "single_game",
+        status: "queued",
+        requestedBy: userId,
+        payload: { gameName: String(gameName).trim(), normalizedName: normalized },
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+    };
+    const jobRef = await addDoc(jobsRef, payload);
+    return jobRef.id;
+}
+
+export function subscribeJobStatus(jobId, callback) {
+    const jobRef = doc(db, "importJobs", jobId);
+    return onSnapshot(jobRef, (snap) => {
+        if (!snap.exists()) return;
+        callback({ id: snap.id, ...snap.data() });
+    });
 }

@@ -2,7 +2,7 @@ import { rows } from './data.js';
 import { initUI, updateGames, setCurrentUser, onToggleLookingForPlayers, setWishlist, onToggleWishlist } from './ui.js';
 import { auth, googleProvider } from './firebase-config.js';
 import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
-import { ensureUserProfile, addGameToLibrary, getUserGames, updateUserVisibility, toggleLookingForPlayers, toggleWishlist, getUserWishlist } from './db.js';
+import { ensureUserProfile, getUserGames, updateUserVisibility, toggleLookingForPlayers, toggleWishlist, getUserWishlist, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
 import { getPublicLibrary } from './public-db.js';
 import { importExcel } from './importer.js';
 
@@ -53,6 +53,7 @@ const addGameDialog = document.getElementById('addGameDialog');
 const addGameForm = document.getElementById('addGameForm');
 const cancelAddGame = document.getElementById('cancelAddGame');
 const excelInput = document.getElementById('excelInput');
+let isCatalogAdmin = false;
 
 // Auth Logic
 if (loginBtn) {
@@ -81,6 +82,7 @@ onAuthStateChanged(auth, async (user) => {
             // Fetch user profile to get isPublic status
             const userProfile = await ensureUserProfile(user);
             const isPublic = userProfile ? userProfile.isPublic : false;
+            isCatalogAdmin = userProfile?.role === "admin";
 
             userDisplay.innerHTML = `
                 <span>Hola, ${user.displayName}</span>
@@ -124,6 +126,7 @@ onAuthStateChanged(auth, async (user) => {
         updateGames(publicGames);
     } else {
         setCurrentUser(null);
+        isCatalogAdmin = false;
         if (loginBtn) loginBtn.style.display = 'block';
         if (userDisplay) {
             userDisplay.style.display = 'none';
@@ -179,17 +182,17 @@ if (excelInput) {
         if (!file) return;
 
         try {
-            const count = await importExcel(file, auth.currentUser.uid);
-            alert(`Se importaron ${count} juegos correctamente.`);
+            const isAdmin = isCatalogAdmin || await canManageCatalog(auth.currentUser.uid);
+            if (!isAdmin) {
+                alert('No tienes permisos para importar catálogo. Esta acción es solo para ADMIN.');
+                return;
+            }
+
+            const { count, games } = await importExcel(file);
+            const jobId = await createBulkImportJob(auth.currentUser.uid, file.name, games);
+            alert(`Importación enviada (${count} juegos). Job: ${jobId}`);
             addGameDialog.close();
             if (excelInput) excelInput.value = '';
-
-            // Refresh view if in "My Library"
-            const activeBtn = document.querySelector('.nav-btn.active');
-            if (activeBtn && activeBtn.dataset.view === 'my-library') {
-                const myGames = await getUserGames(auth.currentUser.uid);
-                updateGames(myGames);
-            }
         } catch (error) {
             alert('Error al importar Excel: ' + error.message);
             console.error(error);
@@ -221,17 +224,27 @@ if (addGameForm) {
         };
 
         try {
-            await addGameToLibrary(auth.currentUser.uid, gameData);
+            const isAdmin = isCatalogAdmin || await canManageCatalog(auth.currentUser.uid);
+            if (!isAdmin) {
+                alert('No tienes permisos para enriquecer catálogo. Esta acción es solo para ADMIN.');
+                return;
+            }
+
+            const jobId = await createSingleGameJob(auth.currentUser.uid, gameData.juego);
+            const stopWatching = subscribeJobStatus(jobId, (job) => {
+                if (job.status === 'done') {
+                    alert(`Juego "${gameData.juego}" procesado correctamente.`);
+                    stopWatching();
+                }
+                if (job.status === 'error') {
+                    alert(`Error procesando "${gameData.juego}". Revisa importJobs/${jobId}`);
+                    stopWatching();
+                }
+            });
+
             addGameDialog.close();
             addGameForm.reset();
-            alert('Juego añadido correctamente');
-
-            // Refresh view if in "My Library"
-            const activeBtn = document.querySelector('.nav-btn.active');
-            if (activeBtn && activeBtn.dataset.view === 'my-library') {
-                const myGames = await getUserGames(auth.currentUser.uid);
-                updateGames(myGames);
-            }
+            alert(`Juego enviado a procesamiento. Job: ${jobId}`);
         } catch (error) {
             alert('Error al añadir juego: ' + error.message);
         }
