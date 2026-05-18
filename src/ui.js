@@ -1,10 +1,12 @@
 
 export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "", genreSearch: "", mechanicsSearch: "" };
 let currentGames = []; // Store the current list of games
+let sortedGames = [];
 let currentUserId = null;
 let currentUserWishlist = new Set(); // Set of game IDs
 let toggleLookingForPlayersCallback = null;
 let toggleWishlistCallback = null;
+let searchDebounceTimer = null;
 
 // DOM Elements
 const groups = document.querySelectorAll('[data-filter]');
@@ -15,9 +17,46 @@ const counter = document.querySelector('#matchCount');
 const results = document.querySelector('#results');
 const resetBtn = document.querySelector('#resetFilters');
 const complexityOrder = ["Liviano", "Medio-Liviano", "Medio", "Medio-Pesado", "Pesado"];
+const TOP_FILTER_CHIPS_LIMIT = 10;
+
+function buildTopFrequencyChips(games, groupSelector, fieldName) {
+    const group = document.querySelector(`[data-filter="${groupSelector}"]`);
+    if (!group) return;
+
+    const freq = new Map();
+    games.forEach(game => {
+        const values = Array.isArray(game[fieldName]) ? game[fieldName] : [];
+        values.forEach(value => {
+            const normalized = String(value).trim();
+            if (!normalized) return;
+            freq.set(normalized, (freq.get(normalized) || 0) + 1);
+        });
+    });
+
+    group.querySelectorAll('button[data-value]:not([data-value=""])').forEach(btn => btn.remove());
+
+    const topValues = Array.from(freq.entries())
+        .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return a[0].localeCompare(b[0]);
+        })
+        .slice(0, TOP_FILTER_CHIPS_LIMIT)
+        .map(([value]) => value);
+
+    topValues.forEach(value => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chip';
+        btn.dataset.value = value;
+        btn.textContent = value;
+        group.appendChild(btn);
+    });
+
+    // Los elementos fuera del top de chips siguen siendo descubribles vía búsqueda libre.
+}
 
 export function initUI(games) {
-    currentGames = games;
+    setGamesDataset(games);
 
     // Initialize Filter Buttons
     const playerGroup = document.querySelector('[data-filter="players"]');
@@ -38,29 +77,39 @@ export function initUI(games) {
     }
 
 
-    const mechanicsGroup = document.querySelector('[data-filter="mechanics"]');
-    if (mechanicsGroup) {
-        const all = new Set();
-        games.forEach(g => (Array.isArray(g.mecanicas) ? g.mecanicas : []).forEach(m => all.add(m)));
-        Array.from(all).sort().forEach(m => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'chip';
-            btn.dataset.value = String(m);
-            btn.textContent = String(m);
-            mechanicsGroup.appendChild(btn);
-        });
-    }
+    buildTopFrequencyChips(games, 'mechanics', 'mecanicas');
+    buildTopFrequencyChips(games, 'categories', 'categorias');
+    buildTopFrequencyChips(games, 'genres', 'generos');
 
     setupEventListeners();
     applyFilters();
-    updateAutocomplete(games);
 }
 
 export function updateGames(newGames) {
-    currentGames = newGames;
+    setGamesDataset(newGames);
     applyFilters();
-    updateAutocomplete(newGames);
+}
+
+function setGamesDataset(games) {
+    currentGames = (games || []).map(game => ({
+        ...game,
+        search_blob_lower: [
+            game.juego || '',
+            game.categorias_str || '',
+            game.mecanicas_str || ''
+        ].join(' ').toLowerCase()
+    }));
+
+    sortedGames = currentGames.slice().sort((a, b) => {
+        const scoreA = a.score ?? 0;
+        const scoreB = b.score ?? 0;
+        if (scoreA === scoreB) {
+            return (a.juego || '').localeCompare(b.juego || '');
+        }
+        return scoreB - scoreA;
+    });
+
+    updateAutocomplete(currentGames);
 }
 
 function updateAutocomplete(games) {
@@ -221,13 +270,12 @@ function matchesMechanicsSearch(row) {
 }
 function matchesSearch(row) {
     if (!filters.search) return true;
-    const haystack = [row.juego, row.categorias_str || '', row.mecanicas_str || '']
-        .join(' ').toLowerCase();
+    const haystack = row.search_blob_lower || '';
     return haystack.includes(filters.search);
 }
 
 function applyFilters() {
-    const filtered = currentGames.filter(row =>
+    const filtered = sortedGames.filter(row =>
         matchesPlayers(row) &&
         matchesComplexity(row) &&
         matchesDuration(row) &&
@@ -235,14 +283,7 @@ function applyFilters() {
         matchesGenreSearch(row) &&
         matchesMechanicsSearch(row) &&
         matchesSearch(row)
-    ).sort((a, b) => {
-        const scoreA = a.score ?? 0;
-        const scoreB = b.score ?? 0;
-        if (scoreA === scoreB) {
-            return (a.juego || '').localeCompare(b.juego || '');
-        }
-        return scoreB - scoreA;
-    });
+    );
     updateCounter(filtered.length);
     render(filtered.slice(0, 30));
 }
