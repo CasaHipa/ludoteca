@@ -1,4 +1,3 @@
-import { rows } from './data.js';
 import { initUI, updateGames, setCurrentUser, onToggleLookingForPlayers, setWishlist, onToggleWishlist } from './ui.js';
 import { auth, googleProvider } from './firebase-config.js';
 import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
@@ -6,21 +5,47 @@ import { ensureUserProfile, getUserGames, updateUserVisibility, toggleLookingFor
 import { getPublicLibrary } from './public-db.js';
 import { importExcel } from './importer.js';
 
-// Initialize UI
-// Try to load public library first, fall back to static data if needed (or just show empty)
-(async () => {
+let currentCatalog = [];
+let lazyRowsPromise = null;
+
+async function loadLazyRows() {
+    if (!lazyRowsPromise) {
+        lazyRowsPromise = import('./data.js');
+    }
+    const module = await lazyRowsPromise;
+    return module.rows || [];
+}
+
+async function resolveCatalogWithLazyFallback() {
     try {
         const publicGames = await getPublicLibrary();
         if (publicGames && publicGames.length > 0) {
-            initUI(publicGames);
-        } else {
-            console.log("No public games found, showing static sample.");
-            initUI(rows);
+            currentCatalog = publicGames;
+            return currentCatalog;
         }
+        console.log('No public games found, loading lazy fallback.');
     } catch (e) {
-        console.error("Error loading public library:", e);
-        initUI(rows);
+        console.error('Error loading public library:', e);
     }
+
+    currentCatalog = await loadLazyRows();
+    return currentCatalog;
+}
+
+async function showHomeCatalog() {
+    if (currentCatalog && currentCatalog.length > 0) {
+        updateGames(currentCatalog);
+        return;
+    }
+
+    const fallbackCatalog = await resolveCatalogWithLazyFallback();
+    updateGames(fallbackCatalog);
+}
+
+// Initialize UI
+(async () => {
+    const initialCatalog = await resolveCatalogWithLazyFallback();
+    initUI(initialCatalog);
 })();
 
 // Register UI callbacks
@@ -130,7 +155,7 @@ onAuthStateChanged(auth, async (user) => {
         console.log("User logged in:", user.uid);
 
         // Load public library by default on login
-        const publicGames = await getPublicLibrary();
+        const publicGames = await resolveCatalogWithLazyFallback();
         updateGames(publicGames);
     } else {
         setCurrentUser(null);
@@ -159,7 +184,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 
         const view = e.target.dataset.view;
         if (view === 'home') {
-            updateGames(rows); // Show static catalog for now (or public games later)
+            await showHomeCatalog();
         } else if (view === 'my-library') {
             if (auth.currentUser) {
                 const myGames = await getUserGames(auth.currentUser.uid);
