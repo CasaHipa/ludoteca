@@ -227,7 +227,8 @@ if (addGameForm) {
             minutos_label: formData.get('minutos'),
             longitud: getDurationLabel(Number(formData.get('minutos'))),
             categorias: formData.get('categorias').split(',').map(s => s.trim()),
-            mecanicas: formData.get('mecanicas').split(',').map(s => s.trim()),
+            mecanicas: formData.get('mecanicas').split(',').map(s => s.trim()).filter(Boolean),
+            ubicacion: String(formData.get('ubicacion') || '').trim(),
             score: 0 // Default score
         };
 
