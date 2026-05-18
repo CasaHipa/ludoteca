@@ -13,6 +13,10 @@ const counter = document.querySelector('#matchCount');
 const results = document.querySelector('#results');
 const resetBtn = document.querySelector('#resetFilters');
 const complexityOrder = ["Liviano", "Medio-Liviano", "Medio", "Medio-Pesado", "Pesado"];
+const FILTER_TOGGLE_STORAGE_PREFIX = 'filters';
+const collapsibleSections = [
+    { key: 'mechanics', button: '[data-toggle-filter="mechanics"]', group: '#filter-group-mechanics' }
+];
 
 export function initUI(games) {
     currentGames = games;
@@ -51,6 +55,7 @@ export function initUI(games) {
     }
 
     setupEventListeners();
+    setupCollapsibleFilters();
     applyFilters();
     updateAutocomplete(games);
 }
@@ -146,6 +151,49 @@ function setupEventListeners() {
             applyFilters();
         });
     }
+}
+
+function getStoredExpandedState(sectionKey) {
+    try {
+        const value = localStorage.getItem(`${FILTER_TOGGLE_STORAGE_PREFIX}.${sectionKey}.expanded`);
+        return value === null ? null : value === 'true';
+    } catch (_) {
+        return null;
+    }
+}
+
+function saveExpandedState(sectionKey, expanded) {
+    try {
+        localStorage.setItem(`${FILTER_TOGGLE_STORAGE_PREFIX}.${sectionKey}.expanded`, String(expanded));
+    } catch (_) {
+        // Silently ignore storage errors (private mode / disabled storage).
+    }
+}
+
+function setCollapsedState(button, group, expanded) {
+    group.classList.toggle('is-expanded', expanded);
+    group.classList.toggle('is-collapsed', !expanded);
+    button.setAttribute('aria-expanded', String(expanded));
+    button.textContent = expanded ? 'Colapsar' : 'Expandir';
+    button.setAttribute('aria-label', `${expanded ? 'Colapsar' : 'Expandir'} filtros de mecánica`);
+}
+
+function setupCollapsibleFilters() {
+    collapsibleSections.forEach(section => {
+        const button = document.querySelector(section.button);
+        const group = document.querySelector(section.group);
+        if (!button || !group) return;
+
+        const saved = getStoredExpandedState(section.key);
+        const expanded = saved ?? false;
+        setCollapsedState(button, group, expanded);
+
+        button.addEventListener('click', () => {
+            const nextExpanded = button.getAttribute('aria-expanded') !== 'true';
+            setCollapsedState(button, group, nextExpanded);
+            saveExpandedState(section.key, nextExpanded);
+        });
+    });
 }
 
 function matchesPlayers(row) {

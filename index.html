@@ -174,10 +174,48 @@
       color: var(--text-muted);
     }
 
+    .filter-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .filter-heading .filter-label {
+      margin-bottom: 0;
+    }
+
+    .filter-toggle {
+      border: var(--glass-border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .filter-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
     .chip-group {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+    }
+
+    .chip-group.is-collapsed {
+      max-height: 96px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .chip-group.is-expanded {
+      max-height: none;
+      overflow: visible;
     }
 
     .chip {
@@ -480,9 +518,12 @@
         <button type="button" class="chip" data-value="Largo">Largo</button>
       </div>
     </div>
-    <div class="filter-group">
-      <span class="filter-label">Mecánica</span>
-      <div class="chip-group" data-filter="mechanics">
+    <div class="filter-group" data-collapsible-filter="mechanics">
+      <div class="filter-heading">
+        <span class="filter-label" id="filter-label-mechanics">Mecánica</span>
+        <button type="button" class="filter-toggle" data-toggle-filter="mechanics" aria-controls="filter-group-mechanics" aria-expanded="false" aria-label="Expandir filtros de mecánica">Expandir</button>
+      </div>
+      <div class="chip-group is-collapsed" id="filter-group-mechanics" data-filter="mechanics">
         <button type="button" class="chip is-active" data-value="">Cualquiera</button>
       </div>
     </div>
