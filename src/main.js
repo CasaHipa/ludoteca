@@ -1,11 +1,11 @@
-import { initUI, updateGames, setCurrentUser, onToggleLookingForPlayers, setWishlist, onToggleWishlist } from './ui.js';
+import { initUI, updateGames, setLoading } from './ui.js';
 import { auth, googleProvider } from './firebase-config.js';
 import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
-import { ensureUserProfile, getUserGames, updateUserVisibility, toggleLookingForPlayers, toggleWishlist, getUserWishlist, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
-import { getPublicLibrary } from './public-db.js';
+import { ensureUserProfile, getCatalogGames, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
 import { importExcel } from './importer.js';
 
 let currentCatalog = [];
+let catalogPromise = null;
 let lazyRowsPromise = null;
 
 async function loadLazyRows() {
@@ -17,19 +17,35 @@ async function loadLazyRows() {
 }
 
 async function resolveCatalogWithLazyFallback() {
-    try {
-        const publicGames = await getPublicLibrary();
-        if (publicGames && publicGames.length > 0) {
-            currentCatalog = publicGames;
-            return currentCatalog;
-        }
-        console.log('No public games found, loading lazy fallback.');
-    } catch (e) {
-        console.error('Error loading public library:', e);
+    if (currentCatalog && currentCatalog.length > 0) {
+        return currentCatalog;
     }
 
-    currentCatalog = await loadLazyRows();
-    return currentCatalog;
+    if (!catalogPromise) {
+        catalogPromise = (async () => {
+            try {
+                const catalogGames = await getCatalogGames();
+                if (catalogGames && catalogGames.length > 0) {
+                    currentCatalog = catalogGames;
+                    return currentCatalog;
+                }
+                console.log('No catalog games found, loading lazy fallback.');
+            } catch (e) {
+                console.error('Error loading catalog:', e);
+            }
+
+            currentCatalog = await loadLazyRows();
+            return currentCatalog;
+        })();
+
+        try {
+            await catalogPromise;
+        } finally {
+            catalogPromise = null;
+        }
+    }
+
+    return catalogPromise || currentCatalog;
 }
 
 async function showHomeCatalog() {
@@ -44,30 +60,10 @@ async function showHomeCatalog() {
 
 // Initialize UI
 (async () => {
+    initUI([], { loading: true });
     const initialCatalog = await resolveCatalogWithLazyFallback();
-    initUI(initialCatalog);
+    updateGames(initialCatalog);
 })();
-
-// Register UI callbacks
-onToggleLookingForPlayers(async (gameId, status) => {
-    if (auth.currentUser) {
-        try {
-            await toggleLookingForPlayers(auth.currentUser.uid, gameId, status);
-        } catch (error) {
-            alert("Error al actualizar estado: " + error.message);
-        }
-    }
-});
-
-onToggleWishlist(async (game, status) => {
-    if (auth.currentUser) {
-        try {
-            await toggleWishlist(auth.currentUser.uid, game, status);
-        } catch (error) {
-            alert("Error al actualizar wishlist: " + error.message);
-        }
-    }
-});
 
 // DOM Elements
 const loginBtn = document.getElementById('loginBtn');
@@ -102,27 +98,16 @@ if (loginBtn) {
 
 onAuthStateChanged(auth, async (user) => {
     if (user) {
-        setCurrentUser(user.uid);
-
-        // Load Wishlist
-        const wishlistGames = await getUserWishlist(user.uid);
-        setWishlist(wishlistGames.map(g => g.id));
+        const userProfile = await ensureUserProfile(user);
 
         if (loginBtn) loginBtn.style.display = 'none';
         if (userDisplay) {
             userDisplay.style.display = 'block';
 
-            // Fetch user profile to get isPublic status
-            const userProfile = await ensureUserProfile(user);
-            const isPublic = userProfile ? userProfile.isPublic : false;
             isCatalogAdmin = userProfile?.role === "admin";
 
             userDisplay.innerHTML = `
                 <span>Hola, ${user.displayName}</span>
-                <label style="margin-left: 10px; font-size: 0.8em; cursor: pointer;">
-                    <input type="checkbox" id="publicToggle" ${isPublic ? 'checked' : ''}>
-                    Pública
-                </label>
             `;
 
             const logoutBtn = document.createElement('button');
@@ -137,28 +122,10 @@ onAuthStateChanged(auth, async (user) => {
             logoutBtn.addEventListener('click', () => signOut(auth));
             userDisplay.appendChild(logoutBtn);
 
-            // Add listener for toggle
-            const toggle = document.getElementById('publicToggle');
-            if (toggle) {
-                toggle.addEventListener('change', async (e) => {
-                    try {
-                        await updateUserVisibility(user.uid, e.target.checked);
-                    } catch (err) {
-                        console.error(err);
-                        e.target.checked = !e.target.checked; // Revert on error
-                        alert("Error al actualizar visibilidad");
-                    }
-                });
-            }
         }
         if (mainNav) mainNav.style.display = 'block';
         console.log("User logged in:", user.uid);
-
-        // Load public library by default on login
-        const publicGames = await resolveCatalogWithLazyFallback();
-        updateGames(publicGames);
     } else {
-        setCurrentUser(null);
         isCatalogAdmin = false;
         if (loginBtn) loginBtn.style.display = 'block';
         if (userDisplay) {
@@ -184,17 +151,8 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 
         const view = e.target.dataset.view;
         if (view === 'home') {
+            setLoading(true);
             await showHomeCatalog();
-        } else if (view === 'my-library') {
-            if (auth.currentUser) {
-                const myGames = await getUserGames(auth.currentUser.uid);
-                updateGames(myGames);
-            }
-        } else if (view === 'wishlist') {
-            if (auth.currentUser) {
-                const wishlistGames = await getUserWishlist(auth.currentUser.uid);
-                updateGames(wishlistGames);
-            }
         }
     });
 });

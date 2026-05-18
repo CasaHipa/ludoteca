@@ -375,7 +375,7 @@
       }
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-Cbp2__jv.js"></script>
+  <script type="module" crossorigin src="./assets/index-D1advV4L.js"></script>
 </head>
 
 <body>
@@ -385,8 +385,6 @@
       <p>Encuentra el juego ideal según jugadores, duración y complejidad.</p>
       <nav id="mainNav" style="display:none; margin-top: 10px;">
         <button class="nav-btn active" data-view="home">Catálogo</button>
-        <button class="nav-btn" data-view="my-library">Mi Ludoteca</button>
-        <button class="nav-btn" data-view="wishlist">Mi Wishlist</button>
         <button class="nav-btn" id="addGameBtn">Añadir Juego</button>
       </nav>
     </div>
@@ -425,6 +423,8 @@
           style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
         <input type="text" name="mecanicas" placeholder="Mecánicas (sep. por comas)"
           style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
+        <input type="text" name="ubicacion" placeholder="Ubicación (ej: Estante 1, fila 2)"
+          style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
           <button type="button" id="cancelAddGame"
             style="background:none; border:none; cursor:pointer; color:#666;">Cancelar</button>
@@ -437,8 +437,7 @@
     <div>
       <h3 style="margin-top:0; font-size: 16px;">O importar desde Excel</h3>
       <input type="file" id="excelInput" accept=".xlsx" style="font-size: 14px;">
-      <p style="font-size: 12px; color: #666; margin-top: 5px;">El Excel debe tener una columna llamada "Juego" o
-        "Nombre".</p>
+      <p style="font-size: 12px; color: #666; margin-top: 5px;">El Excel debe tener columna "Juego"/"Nombre". Opcional: "Ubicación", "Mecánicas", "Categorías", "Suggested_NumPlayers".</p>
     </div>
   </dialog>
   <section class="filters">
@@ -449,7 +448,7 @@
       </div>
     </div>
     <div class="filter-group">
-      <span class="filter-label">Complejidad máxima</span>
+      <span class="filter-label">Complejidad</span>
       <div class="chip-group" data-filter="complexity">
         <button type="button" class="chip is-active" data-value="">Cualquiera</button>
         <button type="button" class="chip" data-value="Liviano">Liviano</button>
@@ -467,6 +466,12 @@
         <button type="button" class="chip" data-value="Moderado">Moderado</button>
         <button type="button" class="chip" data-value="Medio-Largo">Medio-Largo</button>
         <button type="button" class="chip" data-value="Largo">Largo</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Mecánica</span>
+      <div class="chip-group" data-filter="mechanics">
+        <button type="button" class="chip is-active" data-value="">Cualquiera</button>
       </div>
     </div>
     <div class="filter-group">

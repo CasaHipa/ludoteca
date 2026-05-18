@@ -1,5 +1,5 @@
 import { db } from './firebase-config.js';
-import { doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, serverTimestamp, onSnapshot } from "firebase/firestore";
 
 /**
  * Ensures a user profile exists in the database.
@@ -16,7 +16,6 @@ export async function ensureUserProfile(user) {
             email: user.email,
             photoURL: user.photoURL,
             createdAt: new Date(),
-            isPublic: false, // Default to private
             role: "user"
         };
         try {
@@ -33,78 +32,13 @@ export async function ensureUserProfile(user) {
     }
 }
 
-export async function updateUserVisibility(userId, isPublic) {
-    const userRef = doc(db, "users", userId);
-    try {
-        await setDoc(userRef, { isPublic: isPublic }, { merge: true });
-        console.log("User visibility updated to:", isPublic);
-    } catch (e) {
-        console.error("Error updating user visibility:", e);
-        throw e;
-    }
-}
-
-/**
- * Fetch all games for a specific user.
- * @param {string} userId 
- */
-export async function getUserGames(userId) {
-    const gamesRef = collection(db, "users", userId, "games");
-    const q = query(gamesRef);
-    const querySnapshot = await getDocs(q);
+export async function getCatalogGames() {
+    const catalogRef = collection(db, "catalog");
+    const querySnapshot = await getDocs(catalogRef);
     const games = [];
     querySnapshot.forEach((doc) => {
         games.push({ id: doc.id, ...doc.data() });
     });
-    return games;
-}
-
-export async function addGameToLibrary(userId, gameData) {
-    try {
-        const userGamesRef = collection(db, "users", userId, "games");
-        await addDoc(userGamesRef, gameData);
-        console.log("Game added to library");
-    } catch (e) {
-        console.error("Error adding game:", e);
-        throw e;
-    }
-}
-
-export async function toggleLookingForPlayers(userId, gameId, status) {
-    const gameRef = doc(db, "users", userId, "games", gameId);
-    try {
-        await setDoc(gameRef, { lookingForPlayers: status }, { merge: true });
-        console.log(`Game ${gameId} lookingForPlayers set to ${status}`);
-    } catch (e) {
-        console.error("Error updating game status:", e);
-        throw e;
-    }
-}
-
-export async function toggleWishlist(userId, game, status) {
-    // game object should contain at least id, juego, and originalOwnerId if possible
-    const wishlistRef = doc(db, "users", userId, "wishlist", game.id);
-    try {
-        if (status) {
-            await setDoc(wishlistRef, {
-                ...game,
-                addedAt: new Date()
-            });
-        } else {
-            await deleteDoc(wishlistRef);
-        }
-        console.log(`Game ${game.id} wishlist status: ${status}`);
-    } catch (e) {
-        console.error("Error updating wishlist:", e);
-        throw e;
-    }
-}
-
-export async function getUserWishlist(userId) {
-    const wishlistRef = collection(db, "users", userId, "wishlist");
-    const snap = await getDocs(wishlistRef);
-    const games = [];
-    snap.forEach(doc => games.push(doc.data()));
     return games;
 }
 
@@ -127,7 +61,7 @@ export async function createBulkImportJob(userId, fileName, games) {
         type: "bulk_excel",
         status: "queued",
         requestedBy: userId,
-        payload: { fileName, games },
+        payload: { fileName, games, targetCollection: "catalog" },
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     };
@@ -156,7 +90,7 @@ export async function createSingleGameJob(userId, gameName) {
         type: "single_game",
         status: "queued",
         requestedBy: userId,
-        payload: { gameName: String(gameName).trim(), normalizedName: normalized },
+        payload: { gameName: String(gameName).trim(), normalizedName: normalized, targetCollection: "catalog" },
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     };

@@ -1,12 +1,11 @@
 
-export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "" };
+const multiFilterNames = ['players', 'complexity', 'duration', 'mechanics'];
+export const filters = { players: [], complexity: [], duration: [], mechanics: [], search: "" };
 let currentGames = []; // Store the current list of games
 let sortedGames = [];
-let currentUserId = null;
-let currentUserWishlist = new Set(); // Set of game IDs
-let toggleLookingForPlayersCallback = null;
-let toggleWishlistCallback = null;
 let searchDebounceTimer = null;
+let isLoading = false;
+let eventListenersReady = false;
 
 // DOM Elements
 const groups = document.querySelectorAll('[data-filter]');
@@ -14,7 +13,6 @@ const searchInput = document.querySelector('#search');
 const counter = document.querySelector('#matchCount');
 const results = document.querySelector('#results');
 const resetBtn = document.querySelector('#resetFilters');
-const complexityOrder = ["Liviano", "Medio-Liviano", "Medio", "Medio-Pesado", "Pesado"];
 const TOP_FILTER_CHIPS_LIMIT = 10;
 
 function buildTopFrequencyChips(games, groupSelector, fieldName) {
@@ -50,10 +48,45 @@ function buildTopFrequencyChips(games, groupSelector, fieldName) {
         group.appendChild(btn);
     });
 
+    syncFilterGroupActive(groupSelector);
+
     // Los elementos fuera del top de chips siguen siendo descubribles vía búsqueda libre.
 }
 
-export function initUI(games) {
+function getSelectedValues(name) {
+    return Array.isArray(filters[name]) ? filters[name] : [];
+}
+
+function toggleFilterValue(name, value) {
+    if (!multiFilterNames.includes(name)) return;
+    if (value === '') {
+        filters[name] = [];
+        return;
+    }
+
+    const selected = getSelectedValues(name);
+    filters[name] = selected.includes(value)
+        ? selected.filter(item => item !== value)
+        : [...selected, value];
+}
+
+function syncFilterGroupActive(name) {
+    const group = document.querySelector(`[data-filter="${name}"]`);
+    if (!group) return;
+    const selected = getSelectedValues(name);
+
+    group.querySelectorAll('button').forEach(btn => {
+        const value = btn.dataset.value ?? '';
+        btn.classList.toggle('is-active', value === '' ? selected.length === 0 : selected.includes(value));
+    });
+}
+
+function syncAllFilterGroups() {
+    multiFilterNames.forEach(syncFilterGroupActive);
+}
+
+export function initUI(games, options = {}) {
+    isLoading = Boolean(options.loading);
     setGamesDataset(games);
 
     // Initialize Filter Buttons
@@ -78,13 +111,27 @@ export function initUI(games) {
     buildTopFrequencyChips(games, 'mechanics', 'mecanicas');
     buildTopFrequencyChips(games, 'categories', 'categorias');
     buildTopFrequencyChips(games, 'genres', 'generos');
+    syncAllFilterGroups();
 
-    setupEventListeners();
+    if (!eventListenersReady) {
+        setupEventListeners();
+        eventListenersReady = true;
+    }
     applyFilters();
 }
 
 export function updateGames(newGames) {
+    isLoading = false;
     setGamesDataset(newGames);
+    buildTopFrequencyChips(currentGames, 'mechanics', 'mecanicas');
+    buildTopFrequencyChips(currentGames, 'categories', 'categorias');
+    buildTopFrequencyChips(currentGames, 'genres', 'generos');
+    syncAllFilterGroups();
+    applyFilters();
+}
+
+export function setLoading(loading = true) {
+    isLoading = loading;
     applyFilters();
 }
 
@@ -133,24 +180,6 @@ function updateAutocomplete(games) {
     }
 }
 
-export function setCurrentUser(uid) {
-    currentUserId = uid;
-    applyFilters(); // Re-render to update UI state
-}
-
-export function setWishlist(wishlistIds) {
-    currentUserWishlist = new Set(wishlistIds);
-    applyFilters();
-}
-
-export function onToggleLookingForPlayers(callback) {
-    toggleLookingForPlayersCallback = callback;
-}
-
-export function onToggleWishlist(callback) {
-    toggleWishlistCallback = callback;
-}
-
 function setupEventListeners() {
     groups.forEach(group => {
         group.addEventListener('click', ev => {
@@ -159,18 +188,8 @@ function setupEventListeners() {
             const value = btn.dataset.value ?? '';
             const name = group.dataset.filter;
 
-            if (filters[name] === value && value !== '') {
-                filters[name] = '';
-                group.querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.value === ''));
-            } else {
-                filters[name] = value;
-                group.querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b === btn));
-                if (value === '') {
-                    group.querySelectorAll('button').forEach(b => {
-                        if (b.dataset.value === '') b.classList.add('is-active');
-                    });
-                }
-            }
+            toggleFilterValue(name, value);
+            syncFilterGroupActive(name);
             applyFilters();
         });
     });
@@ -187,52 +206,52 @@ function setupEventListeners() {
 
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
-            filters.players = filters.complexityMin = filters.complexityMax = filters.duration = filters.mechanics = filters.search = '';
-            if (searchInput) searchInput.value = '';
-            groups.forEach(group => {
-                group.querySelectorAll('button').forEach(btn => {
-                    const isDefault = btn.dataset.value === '';
-                    btn.classList.toggle('is-active', isDefault);
-                });
+            multiFilterNames.forEach(name => {
+                filters[name] = [];
             });
+            filters.search = '';
+            if (searchInput) searchInput.value = '';
+            syncAllFilterGroups();
             applyFilters();
         });
     }
 }
 
 function matchesPlayers(row) {
-    if (!filters.players) return true;
-    const desired = parseInt(filters.players, 10);
+    const selectedPlayers = getSelectedValues('players');
+    if (selectedPlayers.length === 0) return true;
     const min = row.jug_min;
     const max = row.jug_max;
-    if (min !== null && max !== null) {
-        return desired >= min && desired <= max;
-    }
-    if (min !== null) return desired >= min;
-    if (max !== null) return desired <= max;
-    return true;
+    return selectedPlayers.some(value => {
+        const desired = parseInt(value, 10);
+        if (Number.isNaN(desired)) return false;
+        if (min !== null && max !== null) {
+            return desired >= min && desired <= max;
+        }
+        if (min !== null) return desired >= min;
+        if (max !== null) return desired <= max;
+        return true;
+    });
 }
 
 function matchesComplexity(row) {
-    if (!row.complejidad) return !filters.complexityMin && !filters.complexityMax;
-    const value = complexityOrder.indexOf(row.complejidad);
-    if (value === -1) return false;
-    const min = filters.complexityMin ? complexityOrder.indexOf(filters.complexityMin) : -1;
-    const max = filters.complexityMax ? complexityOrder.indexOf(filters.complexityMax) : Infinity;
-    if (min !== -1 && value < min) return false;
-    if (max !== Infinity && value > max) return false;
-    return true;
+    const selectedComplexities = getSelectedValues('complexity');
+    if (selectedComplexities.length === 0) return true;
+    if (!row.complejidad) return false;
+    return selectedComplexities.includes(row.complejidad);
 }
 
 function matchesMechanics(row) {
-    if (!filters.mechanics) return true;
+    const selectedMechanics = getSelectedValues('mechanics');
+    if (selectedMechanics.length === 0) return true;
     const list = Array.isArray(row.mecanicas) ? row.mecanicas : [];
-    return list.some(m => String(m).toLowerCase() === filters.mechanics.toLowerCase());
+    return list.some(m => selectedMechanics.includes(String(m)));
 }
 
 function matchesDuration(row) {
-    if (!filters.duration) return true;
-    return row.longitud === filters.duration;
+    const selectedDurations = getSelectedValues('duration');
+    if (selectedDurations.length === 0) return true;
+    return selectedDurations.includes(row.longitud);
 }
 
 function matchesSearch(row) {
@@ -242,6 +261,12 @@ function matchesSearch(row) {
 }
 
 function applyFilters() {
+    if (isLoading) {
+        updateCounter(0);
+        render([], { loading: true });
+        return;
+    }
+
     const filtered = sortedGames.filter(row =>
         matchesPlayers(row) &&
         matchesComplexity(row) &&
@@ -255,6 +280,10 @@ function applyFilters() {
 
 function updateCounter(total) {
     if (!counter) return;
+    if (isLoading) {
+        counter.textContent = 'Cargando juegos...';
+        return;
+    }
     if (total === 0) {
         counter.textContent = 'Sin coincidencias';
     } else if (total === 1) {
@@ -264,9 +293,16 @@ function updateCounter(total) {
     }
 }
 
-function render(rows) {
+function render(rows, options = {}) {
     if (!results) return;
     results.innerHTML = '';
+    if (options.loading) {
+        const loading = document.createElement('div');
+        loading.className = 'empty';
+        loading.textContent = 'Cargando juegos...';
+        results.appendChild(loading);
+        return;
+    }
     if (rows.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
@@ -285,51 +321,8 @@ function render(rows) {
         const categories = Array.isArray(row.categorias) ? row.categorias.slice(0, 3) : [];
         const mechanics = Array.isArray(row.mecanicas) ? row.mecanicas.slice(0, 2) : [];
 
-        let ownerHtml = '';
-        if (row.ownerName) {
-            ownerHtml = `<div style="font-size:12px; color:#f97316; margin-bottom:4px;">De: <strong>${row.ownerName}</strong></div>`;
-        }
-
-        // Looking for Players Logic
-        let lfpHtml = '';
-        const isOwner = currentUserId && (row.ownerId === currentUserId || (!row.ownerId && !row.id));
-
-        if (currentUserId && row.ownerId === currentUserId) {
-            const isLooking = row.lookingForPlayers || false;
-            lfpHtml = `
-                <div style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px;">
-                    <label style="font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px;">
-                        <input type="checkbox" class="lfp-toggle" data-id="${row.id}" ${isLooking ? 'checked' : ''}>
-                        Busco gente para jugar
-                    </label>
-                </div>
-            `;
-        } else if (row.lookingForPlayers) {
-            lfpHtml = `
-                <div style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px;">
-                    <span style="font-size: 12px; background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 4px;">
-                        👋 Busca jugadores
-                    </span>
-                </div>
-            `;
-        }
-
-        // Wishlist Logic
-        let wishlistHtml = '';
-        if (currentUserId && row.ownerId !== currentUserId && row.id) {
-            const isWishlisted = currentUserWishlist.has(row.id);
-            const heartColor = isWishlisted ? '#ef4444' : '#ccc';
-            wishlistHtml = `
-                <button class="wishlist-btn" data-id="${row.id}" style="background:none; border:none; cursor:pointer; position: absolute; top: 10px; right: 10px; font-size: 20px; color: ${heartColor};" title="${isWishlisted ? 'Quitar de mi lista' : 'Quiero jugar este juego'}">
-                    ♥
-                </button>
-            `;
-        }
-
         card.innerHTML = `
-      ${wishlistHtml}
       <div>
-        ${ownerHtml}
         <h2>${row.juego || 'Juego sin nombre'}</h2>
         <p class="subtitle">${row.categorias_str || 'Sin categorías'}</p>
       </div>
@@ -345,38 +338,7 @@ function render(rows) {
         ${categories.map(cat => `<span>${cat}</span>`).join('')}
         ${mechanics.map(mech => `<span>${mech}</span>`).join('')}
       </div>
-      ${lfpHtml}
     `;
-
-        // Add event listener for toggle
-        const toggle = card.querySelector('.lfp-toggle');
-        if (toggle) {
-            toggle.addEventListener('change', (e) => {
-                if (toggleLookingForPlayersCallback) {
-                    toggleLookingForPlayersCallback(row.id, e.target.checked);
-                }
-            });
-        }
-
-        // Add event listener for wishlist
-        const wishlistBtn = card.querySelector('.wishlist-btn');
-        if (wishlistBtn) {
-            wishlistBtn.addEventListener('click', (e) => {
-                const isWishlisted = currentUserWishlist.has(row.id);
-                // Optimistic update
-                if (isWishlisted) {
-                    currentUserWishlist.delete(row.id);
-                    e.target.style.color = '#ccc';
-                } else {
-                    currentUserWishlist.add(row.id);
-                    e.target.style.color = '#ef4444';
-                }
-
-                if (toggleWishlistCallback) {
-                    toggleWishlistCallback(row, !isWishlisted);
-                }
-            });
-        }
 
         results.appendChild(card);
     });
