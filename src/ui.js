@@ -1,6 +1,8 @@
 
 export const filters = { players: "", complexityMin: "", complexityMax: "", duration: "", mechanics: "", search: "" };
 let currentGames = []; // Store the current list of games
+let hasLoadedDataset = false;
+let isLoadingData = false;
 let currentUserId = null;
 let currentUserWishlist = new Set(); // Set of game IDs
 let toggleLookingForPlayersCallback = null;
@@ -16,6 +18,8 @@ const complexityOrder = ["Liviano", "Medio-Liviano", "Medio", "Medio-Pesado", "P
 
 export function initUI(games) {
     currentGames = games;
+    hasLoadedDataset = true;
+    isLoadingData = false;
 
     // Initialize Filter Buttons
     const playerGroup = document.querySelector('[data-filter="players"]');
@@ -57,8 +61,20 @@ export function initUI(games) {
 
 export function updateGames(newGames) {
     currentGames = newGames;
+    hasLoadedDataset = true;
+    isLoadingData = false;
     applyFilters();
     updateAutocomplete(newGames);
+}
+
+export function setLoadingData(loading) {
+    isLoadingData = Boolean(loading);
+    if (isLoadingData) {
+        renderLoading();
+        updateCounter(0);
+        return;
+    }
+    applyFilters();
 }
 
 function updateAutocomplete(games) {
@@ -226,8 +242,13 @@ function render(rows) {
     if (rows.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
-        empty.textContent = 'No hay juegos que cumplan esos filtros. Ajusta alguna condición.';
-        results.appendChild(empty);
+        const hasActiveFilters = Object.values(filters).some(Boolean);
+        if (!isLoadingData && (hasActiveFilters || hasLoadedDataset)) {
+            empty.textContent = hasActiveFilters
+                ? 'No hay juegos que cumplan esos filtros. Ajusta alguna condición.'
+                : 'No hay juegos publicados todavía.';
+            results.appendChild(empty);
+        }
         return;
     }
     rows.forEach((row) => {
@@ -238,102 +259,83 @@ function render(rows) {
         const duration = durationLabel ? (String(durationLabel).toLowerCase().includes('min') ? durationLabel : `${durationLabel} min`) : 'Duración variable';
         const players = row.jugadores || 'Jugadores variables';
         const complexity = row.complejidad || 'Sin dato';
-        const categories = Array.isArray(row.categorias) ? row.categorias.slice(0, 3) : [];
-        const mechanics = Array.isArray(row.mecanicas) ? row.mecanicas.slice(0, 2) : [];
-
-        let ownerHtml = '';
-        if (row.ownerName) {
-            ownerHtml = `<div style="font-size:12px; color:#f97316; margin-bottom:4px;">De: <strong>${row.ownerName}</strong></div>`;
-        }
-
-        // Looking for Players Logic
-        let lfpHtml = '';
-        const isOwner = currentUserId && (row.ownerId === currentUserId || (!row.ownerId && !row.id));
-
-        if (currentUserId && row.ownerId === currentUserId) {
-            const isLooking = row.lookingForPlayers || false;
-            lfpHtml = `
-                <div style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px;">
-                    <label style="font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px;">
-                        <input type="checkbox" class="lfp-toggle" data-id="${row.id}" ${isLooking ? 'checked' : ''}>
-                        Busco gente para jugar
-                    </label>
-                </div>
-            `;
-        } else if (row.lookingForPlayers) {
-            lfpHtml = `
-                <div style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px;">
-                    <span style="font-size: 12px; background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 4px;">
-                        👋 Busca jugadores
-                    </span>
-                </div>
-            `;
-        }
-
-        // Wishlist Logic
-        let wishlistHtml = '';
-        if (currentUserId && row.ownerId !== currentUserId && row.id) {
-            const isWishlisted = currentUserWishlist.has(row.id);
-            const heartColor = isWishlisted ? '#ef4444' : '#ccc';
-            wishlistHtml = `
-                <button class="wishlist-btn" data-id="${row.id}" style="background:none; border:none; cursor:pointer; position: absolute; top: 10px; right: 10px; font-size: 20px; color: ${heartColor};" title="${isWishlisted ? 'Quitar de mi lista' : 'Quiero jugar este juego'}">
-                    ♥
-                </button>
-            `;
-        }
+        const categories = row.categorias_str || (Array.isArray(row.categorias) ? row.categorias.join(', ') : 'Sin categorías');
+        const mechanics = row.mecanicas_str || (Array.isArray(row.mecanicas) ? row.mecanicas.join(', ') : 'Sin mecánicas');
+        const location = row.ubicacion || 'Ubicación no especificada';
+        const gameId = row.id || row.juego;
+        const isLookingForPlayers = row.lookingForPlayers || false;
+        const inWishlist = currentUserWishlist.has(gameId);
+        const lookingForPlayersClass = isLookingForPlayers ? 'active' : '';
+        const wishlistClass = inWishlist ? 'active' : '';
 
         card.innerHTML = `
-      ${wishlistHtml}
-      <div>
-        ${ownerHtml}
-        <h2>${row.juego || 'Juego sin nombre'}</h2>
-        <p class="subtitle">${row.categorias_str || 'Sin categorías'}</p>
-      </div>
-      <div class="meta">
-        <span><strong>${players}</strong> jugadores</span>
-        <span>${duration}</span>
-        <span>Complejidad: <strong>${complexity}</strong></span>
-        <span class="score">Puntaje ${score}</span>
-        ${row.suggested_numplayers ? `<span>Sugerido: <strong>${row.suggested_numplayers}</strong></span>` : ''}
-        ${row.ubicacion ? `<span style="opacity:.75">Ubicación: ${row.ubicacion}</span>` : ''}
-      </div>
-      <div class="tags">
-        ${categories.map(cat => `<span>${cat}</span>`).join('')}
-        ${mechanics.map(mech => `<span>${mech}</span>`).join('')}
-      </div>
-      ${lfpHtml}
-    `;
+            <h3>${row.juego || 'Juego sin nombre'}</h3>
+            <div class="meta">
+                <span class="chip">${players}</span>
+                <span class="chip">${duration}</span>
+                <span class="chip">${complexity}</span>
+                <span class="chip">⭐ ${score}</span>
+            </div>
+            <p><strong>Categorías:</strong> ${categories}</p>
+            <p><strong>Mecánicas:</strong> ${mechanics}</p>
+            <p><strong>Ubicación:</strong> ${location}</p>
+            ${currentUserId ? `
+            <div class="actions">
+                <button class="action-btn ${lookingForPlayersClass}" data-action="toggle-looking" data-game-id="${gameId}">
+                    ${isLookingForPlayers ? '✅ Buscando jugadores' : '🎲 Buscar jugadores'}
+                </button>
+                <button class="action-btn ${wishlistClass}" data-action="toggle-wishlist" data-game-id="${gameId}">
+                    ${inWishlist ? '❤️ En wishlist' : '🤍 Añadir wishlist'}
+                </button>
+            </div>
+            ` : ''}
+        `;
 
-        // Add event listener for toggle
-        const toggle = card.querySelector('.lfp-toggle');
-        if (toggle) {
-            toggle.addEventListener('change', (e) => {
-                if (toggleLookingForPlayersCallback) {
-                    toggleLookingForPlayersCallback(row.id, e.target.checked);
-                }
-            });
+        // Add event listeners for action buttons
+        if (currentUserId) {
+            const lookingBtn = card.querySelector('[data-action="toggle-looking"]');
+            const wishlistBtn = card.querySelector('[data-action="toggle-wishlist"]');
+
+            if (lookingBtn && toggleLookingForPlayersCallback) {
+                lookingBtn.addEventListener('click', async () => {
+                    const newStatus = !isLookingForPlayers;
+                    try {
+                        await toggleLookingForPlayersCallback(gameId, newStatus);
+                        row.lookingForPlayers = newStatus;
+                        applyFilters(); // Re-render
+                    } catch (error) {
+                        console.error('Error toggling looking for players:', error);
+                    }
+                });
+            }
+
+            if (wishlistBtn && toggleWishlistCallback) {
+                wishlistBtn.addEventListener('click', async () => {
+                    const newStatus = !inWishlist;
+                    try {
+                        await toggleWishlistCallback(row, newStatus);
+                        if (newStatus) {
+                            currentUserWishlist.add(gameId);
+                        } else {
+                            currentUserWishlist.delete(gameId);
+                        }
+                        applyFilters(); // Re-render
+                    } catch (error) {
+                        console.error('Error toggling wishlist:', error);
+                    }
+                });
+            }
         }
-
-        // Add event listener for wishlist
-        const wishlistBtn = card.querySelector('.wishlist-btn');
-        if (wishlistBtn) {
-            wishlistBtn.addEventListener('click', (e) => {
-                const isWishlisted = currentUserWishlist.has(row.id);
-                // Optimistic update
-                if (isWishlisted) {
-                    currentUserWishlist.delete(row.id);
-                    e.target.style.color = '#ccc';
-                } else {
-                    currentUserWishlist.add(row.id);
-                    e.target.style.color = '#ef4444';
-                }
-
-                if (toggleWishlistCallback) {
-                    toggleWishlistCallback(row, !isWishlisted);
-                }
-            });
-        }
-
         results.appendChild(card);
     });
+}
+
+function renderLoading() {
+    if (!results) return;
+    results.innerHTML = `
+        <div class="empty loading-state">
+            <div class="spinner" aria-hidden="true">⏳</div>
+            <p>Buscando juegos...</p>
+        </div>
+    `;
 }

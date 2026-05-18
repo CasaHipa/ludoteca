@@ -1,5 +1,5 @@
 import { rows } from './data.js';
-import { initUI, updateGames, setCurrentUser, onToggleLookingForPlayers, setWishlist, onToggleWishlist } from './ui.js';
+import { initUI, updateGames, setCurrentUser, onToggleLookingForPlayers, setWishlist, onToggleWishlist, setLoadingData } from './ui.js';
 import { auth, googleProvider } from './firebase-config.js';
 import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
 import { ensureUserProfile, getUserGames, updateUserVisibility, toggleLookingForPlayers, toggleWishlist, getUserWishlist, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
@@ -10,6 +10,7 @@ import { importExcel } from './importer.js';
 // Try to load public library first, fall back to static data if needed (or just show empty)
 (async () => {
     try {
+        setLoadingData(true);
         const publicGames = await getPublicLibrary();
         if (publicGames && publicGames.length > 0) {
             initUI(publicGames);
@@ -20,6 +21,8 @@ import { importExcel } from './importer.js';
     } catch (e) {
         console.error("Error loading public library:", e);
         initUI(rows);
+    } finally {
+        setLoadingData(false);
     }
 })();
 
@@ -130,8 +133,13 @@ onAuthStateChanged(auth, async (user) => {
         console.log("User logged in:", user.uid);
 
         // Load public library by default on login
-        const publicGames = await getPublicLibrary();
-        updateGames(publicGames);
+        setLoadingData(true);
+        try {
+            const publicGames = await getPublicLibrary();
+            updateGames(publicGames);
+        } finally {
+            setLoadingData(false);
+        }
     } else {
         setCurrentUser(null);
         isCatalogAdmin = false;
