@@ -50,6 +50,31 @@ def normalize_match_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
 
+def game_cache_key(value: str) -> str:
+    normalized = normalize_match_text(value)
+    normalized = re.sub(r"[^\w\s]+", " ", normalized, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def load_existing_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"export\s+const\s+rows\s*=\s*(\[.*\])\s*;", text, re.DOTALL)
+    if not match:
+        return []
+
+    payload = re.sub(r"\bNaN\b", "null", match.group(1))
+    try:
+        rows = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        print(f"No pude leer el catálogo existente en {path}: {exc}", file=sys.stderr)
+        return []
+
+    return [row for row in rows if isinstance(row, dict)]
+
+
 def read_sheet_strings(xlsx_path: Path) -> list[str]:
     with zipfile.ZipFile(xlsx_path) as archive:
         if "xl/sharedStrings.xml" not in archive.namelist():
@@ -425,6 +450,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Cantidad de juegos antes de una pausa larga.")
     parser.add_argument("--batch-pause", type=float, default=DEFAULT_BATCH_PAUSE_SECONDS, help="Pausa larga entre lotes.")
     parser.add_argument("--limit", type=int, help="Procesar sólo los primeros N juegos, útil para pruebas.")
+    parser.add_argument("--replace", action="store_true", help="No reutilizar el catálogo existente; reconstruir sólo con el archivo de entrada.")
+    parser.add_argument("--refresh-existing", action="store_true", help="Volver a consultar BGG también para juegos ya presentes.")
     return parser.parse_args()
 
 
@@ -442,31 +469,64 @@ def main() -> int:
         print("No encontré juegos para procesar.", file=sys.stderr)
         return 1
 
+    existing_rows = [] if args.replace else load_existing_rows(args.output)
+    existing_by_name: dict[str, dict[str, Any]] = {}
+    for row in existing_rows:
+        for key_name in (row.get("juego"), row.get("nombre_excel")):
+            key = game_cache_key(str(key_name or ""))
+            if key and key not in existing_by_name:
+                existing_by_name[key] = row
+
+    rows_by_key: dict[str, dict[str, Any]] = {}
+    for row in existing_rows:
+        key = game_cache_key(str(row.get("juego") or row.get("nombre_excel") or ""))
+        if key:
+            rows_by_key[key] = row
+
     rows: list[dict[str, Any]] = []
     failures: list[str] = []
+    fetched_count = 0
+    reused_count = 0
 
     for idx, game in enumerate(input_games, start=1):
         name = game["name"]
-        print(f"[{idx}/{len(input_games)}] Buscando: {name}")
+        cache_key = game_cache_key(name)
+        existing = existing_by_name.get(cache_key)
+        if existing and not args.refresh_existing:
+            reused = dict(existing)
+            if game["location"]:
+                reused["ubicacion"] = game["location"]
+            if not reused.get("nombre_excel"):
+                reused["nombre_excel"] = name
+            rows_by_key[game_cache_key(str(reused.get("juego") or name))] = reused
+            reused_count += 1
+            print(f"[{idx}/{len(input_games)}] Ya existe, reutilizo datos: {name}")
+            continue
+
+        print(f"[{idx}/{len(input_games)}] Buscando en BGG: {name}")
         try:
             bgg_id = find_bgg_id(name, args.sleep)
             if not bgg_id:
                 raise ValueError("sin resultados en BGG")
-            rows.append(fetch_bgg_game(bgg_id, name, game["location"], args.sleep))
+            fetched = fetch_bgg_game(bgg_id, name, game["location"], args.sleep)
+            rows_by_key[game_cache_key(str(fetched.get("juego") or name))] = fetched
+            fetched_count += 1
         except Exception as exc:
             failures.append(f"{name}: {exc}")
             print(f"  ERROR: {name}: {exc}", file=sys.stderr)
 
-        if args.batch_size > 0 and idx % args.batch_size == 0 and idx < len(input_games):
+        if args.batch_size > 0 and fetched_count > 0 and fetched_count % args.batch_size == 0 and idx < len(input_games):
             print(f"Pausa de {args.batch_pause:.1f}s para evitar throttling de BGG...")
             time.sleep(args.batch_pause)
 
+    rows = list(rows_by_key.values())
     rows.sort(key=lambda item: (-(item.get("score") or 0), item.get("juego") or ""))
     write_data_js(args.output, rows)
     if args.json_output:
         write_json(args.json_output, rows)
 
     print(f"Catálogo escrito en {args.output} ({len(rows)} juegos).")
+    print(f"Reutilizados del catálogo existente: {reused_count}. Consultados a BGG: {fetched_count}.")
     if failures:
         print("\nJuegos no importados:", file=sys.stderr)
         for failure in failures:

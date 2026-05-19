@@ -226,6 +226,11 @@
       color: #b8c5d8;
     }
 
+    .search-stack {
+      display: grid;
+      gap: 10px;
+    }
+
     .chip-group {
       display: flex;
       flex-wrap: wrap;
@@ -521,7 +526,7 @@
       }
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-BA3kX7AS.js"></script>
+  <script type="module" crossorigin src="./assets/index-CJDGvxwq.js"></script>
 </head>
 
 <body>
@@ -596,9 +601,14 @@
     <section class="filters">
       <div class="filter-group">
         <span class="filter-label">Buscar</span>
-        <input type="search" id="search" list="search-suggestions" placeholder="Buscar por título, categoría o mecánica"
-          autocomplete="off" />
-        <datalist id="search-suggestions"></datalist>
+        <div class="search-stack">
+          <input type="search" id="titleSearch" list="title-search-suggestions" placeholder="Buscar por título"
+            autocomplete="off" />
+          <input type="search" id="topicSearch" list="topic-search-suggestions"
+            placeholder="Buscar por categoría o mecánica" autocomplete="off" />
+        </div>
+        <datalist id="title-search-suggestions"></datalist>
+        <datalist id="topic-search-suggestions"></datalist>
       </div>
       <div class="filter-group">
         <span class="filter-label">Jugadores</span>

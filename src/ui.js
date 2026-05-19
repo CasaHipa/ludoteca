@@ -1,6 +1,6 @@
 
 const multiFilterNames = ['players', 'complexity', 'duration', 'mechanics'];
-export const filters = { players: [], complexity: [], duration: [], mechanics: [], search: "" };
+export const filters = { players: [], complexity: [], duration: [], mechanics: [], titleSearch: "", topicSearch: "" };
 let currentGames = []; // Store the current list of games
 let sortedGames = [];
 let searchDebounceTimer = null;
@@ -9,7 +9,8 @@ let eventListenersReady = false;
 
 // DOM Elements
 const groups = document.querySelectorAll('[data-filter]');
-const searchInput = document.querySelector('#search');
+const titleSearchInput = document.querySelector('#titleSearch');
+const topicSearchInput = document.querySelector('#topicSearch');
 const counter = document.querySelector('#matchCount');
 const results = document.querySelector('#results');
 const resetBtn = document.querySelector('#resetFilters');
@@ -151,8 +152,8 @@ function tokenizeSearchText(value) {
 function setGamesDataset(games) {
     currentGames = (games || []).map(game => ({
         ...game,
-        search_tokens: tokenizeSearchText([
-            game.juego || '',
+        title_search_tokens: tokenizeSearchText(game.juego || ''),
+        topic_search_tokens: tokenizeSearchText([
             game.categorias_str || '',
             game.mecanicas_str || ''
         ].join(' '))
@@ -171,26 +172,30 @@ function setGamesDataset(games) {
 }
 
 function updateAutocomplete(games) {
-    const suggestions = new Set();
+    const titleSuggestions = new Set();
+    const topicSuggestions = new Set();
     games.forEach(game => {
-        if (game.juego) suggestions.add(game.juego);
+        if (game.juego) titleSuggestions.add(game.juego);
         if (game.categorias) {
-            game.categorias.forEach(c => suggestions.add(c));
+            game.categorias.forEach(c => topicSuggestions.add(c));
         }
         if (game.mecanicas) {
-            game.mecanicas.forEach(m => suggestions.add(m));
+            game.mecanicas.forEach(m => topicSuggestions.add(m));
         }
     });
 
-    const datalist = document.getElementById('search-suggestions');
-    if (datalist) {
+    const renderOptions = (datalist, suggestions) => {
+        if (!datalist) return;
         datalist.innerHTML = '';
         Array.from(suggestions).sort().forEach(value => {
             const option = document.createElement('option');
             option.value = value;
             datalist.appendChild(option);
         });
-    }
+    };
+
+    renderOptions(document.getElementById('title-search-suggestions'), titleSuggestions);
+    renderOptions(document.getElementById('topic-search-suggestions'), topicSuggestions);
 }
 
 function setupEventListeners() {
@@ -207,23 +212,29 @@ function setupEventListeners() {
         });
     });
 
-    if (searchInput) {
-        searchInput.addEventListener('input', () => {
-            filters.search = searchInput.value.trim().toLowerCase();
+    const setupSearchInput = (input, filterName) => {
+        if (!input) return;
+        input.addEventListener('input', () => {
+            filters[filterName] = input.value.trim().toLowerCase();
             if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
             searchDebounceTimer = setTimeout(() => {
                 applyFilters();
             }, 200);
         });
-    }
+    };
+
+    setupSearchInput(titleSearchInput, 'titleSearch');
+    setupSearchInput(topicSearchInput, 'topicSearch');
 
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             multiFilterNames.forEach(name => {
                 filters[name] = [];
             });
-            filters.search = '';
-            if (searchInput) searchInput.value = '';
+            filters.titleSearch = '';
+            filters.topicSearch = '';
+            if (titleSearchInput) titleSearchInput.value = '';
+            if (topicSearchInput) topicSearchInput.value = '';
             syncAllFilterGroups();
             applyFilters();
         });
@@ -267,14 +278,19 @@ function matchesDuration(row) {
     return selectedDurations.includes(row.longitud);
 }
 
-function matchesSearch(row) {
-    if (!filters.search) return true;
-    const queryTokens = tokenizeSearchText(filters.search);
+function matchesTokenSearch(row, filterValue, rowTokenName) {
+    if (!filterValue) return true;
+    const queryTokens = tokenizeSearchText(filterValue);
     if (queryTokens.length === 0) return true;
-    const searchTokens = Array.isArray(row.search_tokens) ? row.search_tokens : [];
+    const searchTokens = Array.isArray(row[rowTokenName]) ? row[rowTokenName] : [];
     return queryTokens.every(queryToken =>
         searchTokens.some(searchToken => searchToken.startsWith(queryToken))
     );
+}
+
+function matchesSearch(row) {
+    return matchesTokenSearch(row, filters.titleSearch, 'title_search_tokens') &&
+        matchesTokenSearch(row, filters.topicSearch, 'topic_search_tokens');
 }
 
 function applyFilters() {

@@ -2,6 +2,8 @@
 
 El script `import_bgg_catalog.py` genera el catálogo local que consume la app (`src/data.js`) a partir de un Excel o CSV.
 
+Por defecto es incremental: lee el catálogo actual de `src/data.js`, reutiliza los juegos que ya existen y consulta BoardGameGeek sólo para juegos nuevos del Excel/CSV. Si el archivo trae una ubicación nueva para un juego existente, actualiza ese campo.
+
 ## Formato del archivo
 
 Debe tener una primera fila con encabezados.
@@ -23,6 +25,24 @@ Brass Birmingham,segundo estante
 
 ```bash
 python3 scripts/import_bgg_catalog.py juegos.xlsx --output src/data.js
+```
+
+También podés dejar el archivo dentro de `scripts/` y pasar esa ruta:
+
+```bash
+python3 scripts/import_bgg_catalog.py scripts/juegos.xlsx --output src/data.js
+```
+
+Para reconstruir el catálogo desde cero, sin reutilizar datos existentes:
+
+```bash
+python3 scripts/import_bgg_catalog.py scripts/juegos.xlsx --output src/data.js --replace
+```
+
+Para forzar que BGG se consulte incluso para juegos ya existentes:
+
+```bash
+python3 scripts/import_bgg_catalog.py scripts/juegos.xlsx --output src/data.js --refresh-existing
 ```
 
 Para probar con pocos juegos:
