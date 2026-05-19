@@ -42,14 +42,17 @@
     body::before {
       content: '';
       position: fixed;
-      inset: 0;
+      top: var(--background-start, 132px);
+      right: 0;
+      bottom: 0;
+      left: 0;
       z-index: -1;
       pointer-events: none;
       background:
-        linear-gradient(rgba(15, 23, 42, 0.74), rgba(15, 23, 42, 0.86)),
-        url('./assets/hipa-BMr0J6ju.jpeg') center center / min(86vw, 980px) no-repeat;
-      filter: contrast(0.92) saturate(0.78);
-      opacity: 0.34;
+        linear-gradient(rgba(15, 23, 42, 0.78), rgba(15, 23, 42, 0.9)),
+        url('./assets/casa_hipa_transparente-CI1z5P83.png') 0 0 / clamp(150px, 18vw, 260px) auto repeat;
+      filter: saturate(0.88);
+      opacity: 0.46;
     }
 
     header {
@@ -642,6 +645,20 @@
     </main>
   </div>
   <footer>Versión móvil generada automáticamente.</footer>
+  <script>
+    const setBackgroundStart = () => {
+      const header = document.querySelector('header');
+      if (!header) return;
+      document.documentElement.style.setProperty('--background-start', `${header.offsetHeight}px`);
+    };
+
+    setBackgroundStart();
+    window.addEventListener('resize', setBackgroundStart);
+
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(setBackgroundStart).observe(document.querySelector('header'));
+    }
+  </script>
 </body>
 
 </html>
