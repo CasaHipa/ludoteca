@@ -1,11 +1,10 @@
 import { initUI, updateGames, setLoading } from './ui.js';
 import { auth, googleProvider } from './firebase-config.js';
 import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
-import { ensureUserProfile, getCatalogGames, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
+import { ensureUserProfile, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
 
 let currentCatalog = [];
 let lazyRowsPromise = null;
-let remoteCatalogPromise = null;
 
 async function loadLazyRows() {
     if (!lazyRowsPromise) {
@@ -24,31 +23,6 @@ async function resolveCatalogWithLazyFallback() {
     return currentCatalog;
 }
 
-async function refreshCatalogFromFirestore() {
-    if (remoteCatalogPromise) {
-        return remoteCatalogPromise;
-    }
-
-    remoteCatalogPromise = (async () => {
-        try {
-            const catalogGames = await getCatalogGames();
-            if (catalogGames && catalogGames.length > 0) {
-                currentCatalog = catalogGames;
-                updateGames(currentCatalog);
-                return currentCatalog;
-            }
-        } catch (e) {
-            console.error('Error loading catalog from Firestore:', e);
-        } finally {
-            remoteCatalogPromise = null;
-        }
-
-        return null;
-    })();
-
-    return remoteCatalogPromise;
-}
-
 async function showHomeCatalog() {
     if (currentCatalog && currentCatalog.length > 0) {
         updateGames(currentCatalog);
@@ -64,7 +38,6 @@ async function showHomeCatalog() {
     initUI([], { loading: true });
     const initialCatalog = await resolveCatalogWithLazyFallback();
     updateGames(initialCatalog);
-    refreshCatalogFromFirestore();
 })();
 
 // DOM Elements
