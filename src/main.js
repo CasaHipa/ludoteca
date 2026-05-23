@@ -2,11 +2,10 @@ import { initUI, updateGames, setLoading } from './ui.js';
 import { auth, googleProvider } from './firebase-config.js';
 import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
 import { ensureUserProfile, getCatalogGames, canManageCatalog, createBulkImportJob, createSingleGameJob, subscribeJobStatus } from './db.js';
-import { importExcel } from './importer.js';
 
 let currentCatalog = [];
-let catalogPromise = null;
 let lazyRowsPromise = null;
+let remoteCatalogPromise = null;
 
 async function loadLazyRows() {
     if (!lazyRowsPromise) {
@@ -21,31 +20,33 @@ async function resolveCatalogWithLazyFallback() {
         return currentCatalog;
     }
 
-    if (!catalogPromise) {
-        catalogPromise = (async () => {
-            try {
-                const catalogGames = await getCatalogGames();
-                if (catalogGames && catalogGames.length > 0) {
-                    currentCatalog = catalogGames;
-                    return currentCatalog;
-                }
-                console.log('No catalog games found, loading lazy fallback.');
-            } catch (e) {
-                console.error('Error loading catalog:', e);
-            }
+    currentCatalog = await loadLazyRows();
+    return currentCatalog;
+}
 
-            currentCatalog = await loadLazyRows();
-            return currentCatalog;
-        })();
-
-        try {
-            await catalogPromise;
-        } finally {
-            catalogPromise = null;
-        }
+async function refreshCatalogFromFirestore() {
+    if (remoteCatalogPromise) {
+        return remoteCatalogPromise;
     }
 
-    return catalogPromise || currentCatalog;
+    remoteCatalogPromise = (async () => {
+        try {
+            const catalogGames = await getCatalogGames();
+            if (catalogGames && catalogGames.length > 0) {
+                currentCatalog = catalogGames;
+                updateGames(currentCatalog);
+                return currentCatalog;
+            }
+        } catch (e) {
+            console.error('Error loading catalog from Firestore:', e);
+        } finally {
+            remoteCatalogPromise = null;
+        }
+
+        return null;
+    })();
+
+    return remoteCatalogPromise;
 }
 
 async function showHomeCatalog() {
@@ -63,6 +64,7 @@ async function showHomeCatalog() {
     initUI([], { loading: true });
     const initialCatalog = await resolveCatalogWithLazyFallback();
     updateGames(initialCatalog);
+    refreshCatalogFromFirestore();
 })();
 
 // DOM Elements
@@ -179,6 +181,7 @@ if (excelInput) {
                 return;
             }
 
+            const { importExcel } = await import('./importer.js');
             const { count, games } = await importExcel(file);
             const jobId = await createBulkImportJob(auth.currentUser.uid, file.name, games);
             alert(`Importación enviada (${count} juegos). Job: ${jobId}`);
