@@ -4,6 +4,8 @@ El script `import_bgg_catalog.py` genera el catálogo local que consume la app (
 
 Por defecto es incremental: lee el catálogo actual de `src/data.js`, reutiliza los juegos que ya existen y consulta BoardGameGeek sólo para juegos nuevos del Excel/CSV. Si el archivo trae una ubicación nueva para un juego existente, actualiza ese campo.
 
+Si `tqdm` está instalado, muestra una barra de progreso con contadores de juegos reutilizados, consultados en BGG y fallas. Si no está instalado, el script funciona igual con logs simples.
+
 ## Formato del archivo
 
 Debe tener una primera fila con encabezados.
@@ -12,6 +14,8 @@ Columnas soportadas:
 
 - `juego`, `nombre`, `titulo`, `title` o `name`: requerida.
 - `ubicacion`, `ubicación` o `location`: opcional, campo libre para la ubicación física.
+
+También se acepta un archivo "solo nombres", sin encabezado, con los juegos en la primera columna.
 
 Ejemplo:
 
@@ -22,6 +26,15 @@ Brass Birmingham,segundo estante
 ```
 
 ## Uso
+
+Si usás el Excel por defecto `scripts/Ludoteca Casa Hipa - Solo nombres.xlsx`, podés correr:
+
+```bash
+cd scripts
+python import_bgg_catalog.py
+```
+
+Eso escribe `../src/data.js` y `../import-fallas.txt`.
 
 ```bash
 python3 scripts/import_bgg_catalog.py juegos.xlsx --output src/data.js
@@ -57,18 +70,25 @@ Para guardar también un JSON que luego puede subirse a Firestore `catalog`:
 python3 scripts/import_bgg_catalog.py juegos.xlsx --output src/data.js --json-output catalog.json
 ```
 
+Para guardar un reporte de los juegos que no se pudieron importar:
+
+```bash
+python3 scripts/import_bgg_catalog.py scripts/juegos.xlsx --output src/data.js --failures-output import-fallas.txt
+```
+
 ## Pausas contra throttling
 
 BoardGameGeek limita llamadas seguidas. Por defecto el script:
 
 - espera `2.5s` entre requests;
 - cada `25` juegos hace una pausa de `20s`;
-- reintenta errores temporales `202`, `429` y `5xx`.
+- reintenta errores temporales `202`, `429` y `5xx`;
+- si BGG devuelve `Retry-After`, espera ese tiempo antes de reintentar.
 
 Se puede ajustar:
 
 ```bash
-python3 scripts/import_bgg_catalog.py juegos.xlsx --sleep 4 --batch-size 20 --batch-pause 45
+python3 scripts/import_bgg_catalog.py juegos.xlsx --sleep 4 --batch-size 20 --batch-pause 45 --max-retries 8
 ```
 
 Después de generar `src/data.js`, correr:

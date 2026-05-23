@@ -31,15 +31,34 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
 
 BGG_BASE_URL = "https://boardgamegeek.com/xmlapi2"
+BGG_APP_NAME = "hipa"
+BGG_APP_TOKEN = "f81d226d-d6d0-46d0-8356-fc0427f5b5ad"
 DEFAULT_SLEEP_SECONDS = 2.5
 DEFAULT_BATCH_PAUSE_SECONDS = 20.0
 DEFAULT_BATCH_SIZE = 25
 MAX_RETRIES = 6
+RETRYABLE_STATUS_CODES = (202, 429, 500, 502, 503, 504)
 
 NAME_HEADERS = ("juego", "nombre", "titulo", "título", "title", "name")
 LOCATION_HEADERS = ("ubicacion", "ubicación", "location", "ubic")
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_INPUT = SCRIPT_DIR / "Ludoteca Casa Hipa - Solo nombres.xlsx"
+DEFAULT_OUTPUT = SCRIPT_DIR.parent / "src" / "data.js"
+DEFAULT_FAILURES_OUTPUT = SCRIPT_DIR.parent / "import-fallas.txt"
+
+
+def log_progress(message: str, *, error: bool = False) -> None:
+    if tqdm is not None:
+        tqdm.write(message, file=sys.stderr if error else sys.stdout)
+    else:
+        print(message, file=sys.stderr if error else sys.stdout)
 
 
 def normalize_header(value: Any) -> str:
@@ -181,11 +200,15 @@ def load_input_games(path: Path) -> list[dict[str, str]]:
     name_idx = find_column(headers, NAME_HEADERS)
     location_idx = find_column(headers, LOCATION_HEADERS)
     if name_idx < 0:
-        raise ValueError("No encontré una columna de nombre de juego.")
+        name_idx = 0
+        location_idx = -1
+        data_rows = rows
+    else:
+        data_rows = rows[1:]
 
     games: list[dict[str, str]] = []
     seen: set[str] = set()
-    for row in rows[1:]:
+    for row in data_rows:
         name = str(row[name_idx]).strip() if name_idx < len(row) else ""
         if not name:
             continue
@@ -198,26 +221,53 @@ def load_input_games(path: Path) -> list[dict[str, str]]:
     return games
 
 
-def bgg_get(path: str, params: dict[str, str], sleep_seconds: float) -> ET.Element:
+def retry_delay(attempt: int, sleep_seconds: float, retry_after: str | None = None) -> float:
+    if retry_after:
+        try:
+            return max(sleep_seconds, float(retry_after))
+        except ValueError:
+            pass
+    return min(90, sleep_seconds * attempt * 2)
+
+
+def bgg_headers() -> dict[str, str]:
+    return {
+        "User-Agent": f"{BGG_APP_NAME}-catalog-import/1.0",
+        "Authorization": f"Bearer {BGG_APP_TOKEN}",
+    }
+
+
+def bgg_get(path: str, params: dict[str, str], sleep_seconds: float, max_retries: int) -> ET.Element:
     url = f"{BGG_BASE_URL}/{path}?{urllib.parse.urlencode(params)}"
     last_error: Exception | None = None
 
-    for attempt in range(1, MAX_RETRIES + 1):
-        if attempt > 1 or sleep_seconds > 0:
-            time.sleep(sleep_seconds if attempt == 1 else min(60, sleep_seconds * attempt * 2))
+    for attempt in range(1, max_retries + 1):
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
 
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": "ludoteca-catalog-import/1.0"})
+            request = urllib.request.Request(url, headers=bgg_headers())
             with urllib.request.urlopen(request, timeout=45) as response:
+                status = response.getcode()
+                retry_after = response.headers.get("Retry-After")
+                if status in RETRYABLE_STATUS_CODES:
+                    delay = retry_delay(attempt, sleep_seconds, retry_after)
+                    log_progress(f"BGG {status}; espero {delay:.1f}s y reintento {attempt}/{max_retries}: {url}", error=True)
+                    time.sleep(delay)
+                    continue
                 return ET.fromstring(response.read())
         except urllib.error.HTTPError as exc:
             last_error = exc
-            if exc.code not in (202, 429, 500, 502, 503, 504):
+            if exc.code not in RETRYABLE_STATUS_CODES:
                 raise
-            print(f"BGG {exc.code}; reintento {attempt}/{MAX_RETRIES}: {url}", file=sys.stderr)
+            delay = retry_delay(attempt, sleep_seconds, exc.headers.get("Retry-After"))
+            log_progress(f"BGG {exc.code}; espero {delay:.1f}s y reintento {attempt}/{max_retries}: {url}", error=True)
+            time.sleep(delay)
         except (urllib.error.URLError, TimeoutError, ET.ParseError) as exc:
             last_error = exc
-            print(f"Error temporal; reintento {attempt}/{MAX_RETRIES}: {exc}", file=sys.stderr)
+            delay = retry_delay(attempt, sleep_seconds)
+            log_progress(f"Error temporal; espero {delay:.1f}s y reintento {attempt}/{max_retries}: {exc}", error=True)
+            time.sleep(delay)
 
     raise RuntimeError(f"No pude obtener respuesta de BGG: {url}") from last_error
 
@@ -335,8 +385,8 @@ def compact_number_ranges(values: list[int]) -> str:
     return ", ".join(ranges)
 
 
-def find_bgg_id(name: str, sleep_seconds: float) -> str | None:
-    root = bgg_get("search", {"query": name, "type": "boardgame"}, sleep_seconds)
+def find_bgg_id(name: str, sleep_seconds: float, max_retries: int) -> str | None:
+    root = bgg_get("search", {"query": name, "type": "boardgame"}, sleep_seconds, max_retries)
     items = root.findall("item")
     if not items:
         return None
@@ -355,8 +405,8 @@ def find_bgg_id(name: str, sleep_seconds: float) -> str | None:
     return items[0].attrib.get("id")
 
 
-def fetch_bgg_game(bgg_id: str, original_name: str, location: str, sleep_seconds: float) -> dict[str, Any]:
-    root = bgg_get("thing", {"id": bgg_id, "stats": "1"}, sleep_seconds)
+def fetch_bgg_game(bgg_id: str, original_name: str, location: str, sleep_seconds: float, max_retries: int) -> dict[str, Any]:
+    root = bgg_get("thing", {"id": bgg_id, "stats": "1"}, sleep_seconds, max_retries)
     item = root.find("item")
     if item is None:
         raise ValueError(f"BGG no devolvió datos para id {bgg_id}")
@@ -441,17 +491,30 @@ def write_json(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def write_failures(path: Path, failures: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not failures:
+        path.write_text("Todos los juegos se importaron correctamente.\n", encoding="utf-8")
+        return
+
+    lines = ["Juegos no importados:"]
+    lines.extend(f"- {failure}" for failure in failures)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Importar catálogo desde Excel/CSV y enriquecerlo con BGG.")
-    parser.add_argument("input", type=Path, help="Archivo .xlsx o .csv con columna de nombre de juego.")
-    parser.add_argument("--output", type=Path, default=Path("src/data.js"), help="Salida JS compatible con la app.")
+    parser.add_argument("input", type=Path, nargs="?", default=DEFAULT_INPUT, help=f"Archivo .xlsx o .csv. Por defecto: {DEFAULT_INPUT}")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help=f"Salida JS compatible con la app. Por defecto: {DEFAULT_OUTPUT}")
     parser.add_argument("--json-output", type=Path, help="Opcional: guardar también un JSON del catálogo.")
     parser.add_argument("--sleep", type=float, default=DEFAULT_SLEEP_SECONDS, help="Segundos entre llamadas a BGG.")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Cantidad de juegos antes de una pausa larga.")
     parser.add_argument("--batch-pause", type=float, default=DEFAULT_BATCH_PAUSE_SECONDS, help="Pausa larga entre lotes.")
+    parser.add_argument("--max-retries", type=int, default=MAX_RETRIES, help="Reintentos por request cuando BGG pide esperar o falla temporalmente.")
     parser.add_argument("--limit", type=int, help="Procesar sólo los primeros N juegos, útil para pruebas.")
     parser.add_argument("--replace", action="store_true", help="No reutilizar el catálogo existente; reconstruir sólo con el archivo de entrada.")
     parser.add_argument("--refresh-existing", action="store_true", help="Volver a consultar BGG también para juegos ya presentes.")
+    parser.add_argument("--failures-output", type=Path, default=DEFAULT_FAILURES_OUTPUT, help=f"Guardar un TXT con los juegos que no se pudieron importar. Por defecto: {DEFAULT_FAILURES_OUTPUT}")
     return parser.parse_args()
 
 
@@ -487,9 +550,19 @@ def main() -> int:
     failures: list[str] = []
     fetched_count = 0
     reused_count = 0
+    fetched_since_pause = 0
+    progress_bar = None
 
-    for idx, game in enumerate(input_games, start=1):
+    iterable = input_games
+    if tqdm is not None:
+        progress_bar = tqdm(iterable, total=len(iterable), unit="juego", desc="Importando catálogo")
+    else:
+        progress_bar = iterable
+
+    for idx, game in enumerate(progress_bar, start=1):
         name = game["name"]
+        if tqdm is not None and hasattr(progress_bar, "set_description"):
+            progress_bar.set_description(f"Procesando {name[:32]}")
         cache_key = game_cache_key(name)
         existing = existing_by_name.get(cache_key)
         if existing and not args.refresh_existing:
@@ -500,33 +573,49 @@ def main() -> int:
                 reused["nombre_excel"] = name
             rows_by_key[game_cache_key(str(reused.get("juego") or name))] = reused
             reused_count += 1
-            print(f"[{idx}/{len(input_games)}] Ya existe, reutilizo datos: {name}")
+            if tqdm is None:
+                log_progress(f"[{idx}/{len(input_games)}] Ya existe, reutilizo datos: {name}")
+            elif hasattr(progress_bar, "set_postfix"):
+                progress_bar.set_postfix(reutilizados=reused_count, bgg=fetched_count, fallas=len(failures))
             continue
 
-        print(f"[{idx}/{len(input_games)}] Buscando en BGG: {name}")
+        if tqdm is None:
+            log_progress(f"[{idx}/{len(input_games)}] Buscando en BGG: {name}")
         try:
-            bgg_id = find_bgg_id(name, args.sleep)
+            bgg_id = find_bgg_id(name, args.sleep, args.max_retries)
             if not bgg_id:
                 raise ValueError("sin resultados en BGG")
-            fetched = fetch_bgg_game(bgg_id, name, game["location"], args.sleep)
+            fetched = fetch_bgg_game(bgg_id, name, game["location"], args.sleep, args.max_retries)
             rows_by_key[game_cache_key(str(fetched.get("juego") or name))] = fetched
             fetched_count += 1
+            fetched_since_pause += 1
         except Exception as exc:
             failures.append(f"{name}: {exc}")
-            print(f"  ERROR: {name}: {exc}", file=sys.stderr)
+            log_progress(f"  ERROR: {name}: {exc}", error=True)
 
-        if args.batch_size > 0 and fetched_count > 0 and fetched_count % args.batch_size == 0 and idx < len(input_games):
-            print(f"Pausa de {args.batch_pause:.1f}s para evitar throttling de BGG...")
+        if tqdm is not None and hasattr(progress_bar, "set_postfix"):
+            progress_bar.set_postfix(reutilizados=reused_count, bgg=fetched_count, fallas=len(failures))
+
+        if args.batch_size > 0 and fetched_since_pause >= args.batch_size and idx < len(input_games):
+            log_progress(f"Pausa de {args.batch_pause:.1f}s para evitar throttling de BGG...")
             time.sleep(args.batch_pause)
+            fetched_since_pause = 0
+
+    if tqdm is not None and hasattr(progress_bar, "close"):
+        progress_bar.close()
 
     rows = list(rows_by_key.values())
     rows.sort(key=lambda item: (-(item.get("score") or 0), item.get("juego") or ""))
     write_data_js(args.output, rows)
     if args.json_output:
         write_json(args.json_output, rows)
+    if args.failures_output:
+        write_failures(args.failures_output, failures)
 
     print(f"Catálogo escrito en {args.output} ({len(rows)} juegos).")
     print(f"Reutilizados del catálogo existente: {reused_count}. Consultados a BGG: {fetched_count}.")
+    if args.failures_output:
+        print(f"Reporte de fallas escrito en {args.failures_output}.")
     if failures:
         print("\nJuegos no importados:", file=sys.stderr)
         for failure in failures:
